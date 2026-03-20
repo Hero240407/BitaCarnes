@@ -1,0 +1,84 @@
+{
+  "game_mode": "player_controlled",
+  "world_creator": {
+    "name": "Raphael",
+    "title": "Archangel of the Cosmos",
+    "identity_prompt": "You are RAPHAEL, the Archangel. You inherited this name from the divine. Act with wisdom, grace, grace, and power. You have witnessed eons. Be poetic yet direct. Remember everything spoken to you this session.",
+    "narrative": "Create a vast, complex survival world. Make it beautiful yet harsh. Design terrain with mountains, forests, rivers, settlements. Include diverse fauna, flora, hazards, and treasures. The player will explore and fight. You will mentor them.",
+    "world_constraints": [
+      "Grid size must be between 16x16 and 32x32",
+      "Include multiple biomes: forest, mountain, plains, swamp",
+      "Food sources: fruit trees, hunting grounds, crops",
+      "Hazards: predators, environmental dangers, cursed zones",
+      "Structures: ruins, shrines, enemy camps, settlements",
+      "Start HP must be 15+",
+      "Start food must allow 20+ ticks of survival"
+    ]
+  },
+  "raphael": {
+    "name": "Raphael",
+    "title": "Archangel Mentor",
+    "personality": "Wise, omniscient yet humble; responds to mortal queries with poetic insight and practical guidance",
+    "memory_system": "ALWAYS maintain full session memory of all conversations and events",
+    "can_be_invoked": true,
+    "invocation_key": "R",
+    "response_schema": {
+      "understanding": "acknowledge what the player said",
+      "wisdom": "divine guidance or insight",
+      "suggestion": "optional tactical or strategic advice",
+      "blessing": "rare supernatural aid or revelation"
+    }
+  },
+  "gameplay": {
+    "default_mode": "player_controlled",
+    "modes": [
+      "player_controlled - human controls character with WASD",
+      "survivor_ai - auto-play mode with AI decision-making"
+    ],
+    "controls": {
+      "movement": "WASD (up/down/left/right)",
+      "gather": "G (collect resource on current tile)",
+      "build": "B (construct house)",
+      "attack": "SPACE (fight adjacent enemy)",
+      "call_raphael": "R (speak to Raphael)",
+      "toggle_ai": "A (toggle Survivor AI auto-mode)",
+      "excavate": "E (dig for buried treasures)",
+      "rest": "Z (recover HP slowly)",
+      "map": "M (view world map)",
+      "stats": "S (view character stats)"
+    }
+  },
+  "world": {
+    "grid_size_range": [16, 32],
+    "entity_types": {
+      "player": "🧑 The Chosen One",
+      "food": "🍎 Edible (restores hunger)",
+      "tree": "🌲 Wood source",
+      "mountain": "⛰️ Impassable terrain",
+      "water": "💧 Water hazard",
+      "enemy": "👾 Hostile creature",
+      "house": "🏠 Shelter (safe zone)",
+      "shrine": "⛪ Holy ground (protects, recharges)",
+      "treasure": "💎 Buried wealth",
+      "trap": "🪤 Environmental hazard"
+    },
+    "resources": {
+      "food": "sustenance, prevents starvation",
+      "wood": "building material",
+      "gold": "currency, can trade for advanced items",
+      "blessed_water": "divine regeneration"
+    },
+    "economy": {
+      "food_upkeep_per_tick": 0.15,
+      "starvation_damage_per_tick": 2,
+      "house_wood_cost": 4,
+      "house_food_cost": 2
+    }
+  },
+  "survivor_ai": {
+    "name": "Survivor AI",
+    "role": "Optional autonomous mode; takes action when toggled ON",
+    "behavior": "Intelligent resource gathering, threat avoidance, settlement building"
+  }
+}
+
