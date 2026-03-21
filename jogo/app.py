@@ -38,6 +38,9 @@ from .npc_dialogue_ai import SistemaConversas
 from .location_ambiance import GerenciadorAmbiance, SistemaTempoAmbiane, TipoBioma
 from .world_interactions import GerenciadorObjetos, SistemaPovoado, SistemaProgresso
 
+# Som e Música
+from .sound_manager import GerenciadorSom, GerenciadorEfeitosSonoros, MusicaContexto, ContextoMusica
+
 
 def _tela_geracao_mundo(tela: pygame.Surface, relogio: pygame.time.Clock, futuro: Future) -> tuple:
     fonte = pygame.font.SysFont("cambria", 26, bold=True)
@@ -224,6 +227,11 @@ def rodar() -> None:
     sistema_progresso = SistemaProgresso()
     print(f"[Sistema] World Interactions System carregado com {len(gerenciador_objetos.objetos_mundo)} objetos")
 
+    # Sound/Music System
+    gerenciador_som = GerenciadorSom()
+    gerenciador_efeitos = GerenciadorEfeitosSonoros()
+    print("[Sistema] Sound Manager carregado")
+
     rodando = True
     tick = 0
     ultimo_tempo_acao = 0.0
@@ -271,6 +279,9 @@ def rodar() -> None:
     render_cfg = objetivos.get("gameplay", {}).get("render", {})
     quadrados_x = int(render_cfg.get("visible_squares_x", 28))
     quadrados_y = int(render_cfg.get("visible_squares_y", 14))
+
+    # Começar música do jogo
+    gerenciador_som.tocar_musica(MusicaContexto.EXPLORAR, fade_in=False)
 
     while rodando and mundo.hp > 0:
         for evento in pygame.event.get():
@@ -773,6 +784,10 @@ def rodar() -> None:
             barra_hp.atualizar(mundo.hp / max(1, mundo.hp_max))
             barra_comida.atualizar(max(0, mundo.inventario.get("comida", 0)) / max(1, mundo.inventario.get("comida", 100)))
             barra_morale.atualizar((mundo.moralidade_jogador + 10) / 20)  # -10 to +10 mapped to 0-1
+            
+            # Atualizar música baseado no contexto do jogo
+            contexto_musica = ContextoMusica.determinar_contexto(mundo, tempo_sistema, mundo.ultimo_evento, pausado=pausado)
+            gerenciador_som.atualizar_musica(contexto_musica)
             
             # Gerar eventos do mundo aleatoriamente
             evento_mundo = sistema_povoado.gerar_evento(mundo.humano[0], mundo.humano[1])
