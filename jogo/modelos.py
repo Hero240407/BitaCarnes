@@ -5,6 +5,7 @@ from .config import DIRECOES
 from .personagens import obter_banco_personagens
 from .sociedade import (
     PAPEIS_NPC,
+    PLANTAS_DISPONIVEIS,
     evoluir_tipo_assentamento,
     gerar_lore_mundo,
     gerar_nome_local,
@@ -115,6 +116,18 @@ class Mundo:
         self.tiles_tesouro: dict[tuple[int, int], int] = {}
         self.tiles_armadilha: set[tuple[int, int]] = set()
         self.tiles_maldito: set[tuple[int, int]] = set()
+        
+        # Estruturas de fantasia e isekai adicionadas
+        self.tiles_torre_magica: set[tuple[int, int]] = set()
+        self.tiles_dragao_covil: set[tuple[int, int]] = set()
+        self.tiles_floresta_sagrada: set[tuple[int, int]] = set()
+        self.tiles_templo_antigo: set[tuple[int, int]] = set()
+        self.tiles_caverna_cristal: set[tuple[int, int]] = set()
+        self.tiles_portal_isekai: set[tuple[int, int]] = set()
+        self.tiles_mina_anao: set[tuple[int, int]] = set()
+        self.tiles_floresta_elfo: set[tuple[int, int]] = set()
+        self.tiles_vulcao_menor: set[tuple[int, int]] = set()
+        self.tiles_tumulo_antigo: set[tuple[int, int]] = set()
 
         self.vilas: dict[str, dict] = {}
         self.npcs: dict[str, dict] = {}
@@ -174,6 +187,13 @@ class Mundo:
         self.tick_animacao_humano = 0
         self.ultimo_evento = "mundo inicializado"
         self.moralidade_jogador = 0
+        
+        # Animacao de movimento (walking)
+        self.movimento_inicio_pos: list[float] = list(self.humano)
+        self.movimento_fim_pos: list[float] = list(self.humano)
+        self.movimento_tempo_inicial = 0.0
+        self.movimento_duracao = 0.0  # Duracao em segundos
+        self.movimento_ativo = False
 
         self.gerar_terreno()
         self.gerar_sociedade_inicial()
@@ -294,14 +314,38 @@ class Mundo:
         return (x, y) not in self.tiles_montanha and (x, y) not in self.tiles_agua
 
     def gerar_terreno(self) -> None:
+        # Usa tema do lore para influenciar geracao de mundo
+        tema_terra = self.world_lore.get("tema_terra", "reino_fragmentado")
+        
         # Gera blocos suaves para estilo de biomas mais legivel e menos caotico.
-        for _ in range(max(2, self.tamanho // 3)):
-            cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
-            raio = random.randint(2, 4)
-            for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
-                for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
-                    if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.35:
-                        self.tiles_montanha.add((x, y))
+        if tema_terra == "terra_mutante":
+            # Magia descontrolada: mais agua, terras malditas
+            for _ in range(max(2, self.tamanho // 2)):
+                cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
+                raio = random.randint(2, 5)
+                for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
+                    for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
+                        if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.25:
+                            if (x, y) not in self.tiles_montanha:
+                                self.tiles_agua.add((x, y))
+        elif tema_terra == "ruinas_mystticas":
+            # Muitas ruinas: montanhas e santuarios
+            for _ in range(max(3, self.tamanho // 2)):
+                cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
+                raio = random.randint(2, 4)
+                for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
+                    for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
+                        if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.45:
+                            self.tiles_montanha.add((x, y))
+        else:
+            # reino_fragmentado e santuarios_selvagens: normal
+            for _ in range(max(2, self.tamanho // 3)):
+                cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
+                raio = random.randint(2, 4)
+                for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
+                    for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
+                        if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.35:
+                            self.tiles_montanha.add((x, y))
 
         for _ in range(max(2, self.tamanho // 4)):
             cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
@@ -316,14 +360,42 @@ class Mundo:
         self.spawn_tiles(self.tiles_comida, int(self.tamanho * 0.7))
         self.spawn_tiles(self.tiles_inimigo, int(self.tamanho * 0.1))
         self.spawn_animais(max(4, int(self.tamanho * 0.2)))
-        self.spawn_tiles(self.tiles_santuario, max(1, int(self.tamanho * 0.04)))
+        
+        # Mais santuarios em mundos misticos
+        santuario_qty = int(self.tamanho * 0.08) if tema_terra == "ruinas_mystticas" else int(self.tamanho * 0.04)
+        self.spawn_tiles(self.tiles_santuario, max(1, santuario_qty))
 
         for _ in range(int(self.tamanho * 0.08)):
             x, y = self.posicao_livre_aleatoria()
             self.tiles_tesouro[(x, y)] = random.randint(10, 60)
 
-        self.spawn_tiles(self.tiles_armadilha, int(self.tamanho * 0.06))
-        self.spawn_tiles(self.tiles_maldito, int(self.tamanho * 0.03))
+        # Mais zonas malditas em terra mutante
+        armadilha_qty = int(self.tamanho * 0.08) if tema_terra == "terra_mutante" else int(self.tamanho * 0.06)
+        maldito_qty = int(self.tamanho * 0.06) if tema_terra == "terra_mutante" else int(self.tamanho * 0.03)
+        self.spawn_tiles(self.tiles_armadilha, armadilha_qty)
+        self.spawn_tiles(self.tiles_maldito, maldito_qty)
+        
+        # Estruturas de fantasia e isekai adicionadas
+        # Torres magicas
+        self.spawn_tiles(self.tiles_torre_magica, max(1, int(self.tamanho * 0.04)))
+        # Covis de dragões
+        self.spawn_tiles(self.tiles_dragao_covil, max(1, int(self.tamanho * 0.02)))
+        # Florestas sagradas
+        self.spawn_tiles(self.tiles_floresta_sagrada, max(1, int(self.tamanho * 0.05)))
+        # Templos antigos
+        self.spawn_tiles(self.tiles_templo_antigo, max(1, int(self.tamanho * 0.03)))
+        # Cavernas de cristal
+        self.spawn_tiles(self.tiles_caverna_cristal, max(1, int(self.tamanho * 0.03)))
+        # Portais isekai
+        self.spawn_tiles(self.tiles_portal_isekai, max(1, int(self.tamanho * 0.02)))
+        # Minas de anão
+        self.spawn_tiles(self.tiles_mina_anao, max(1, int(self.tamanho * 0.03)))
+        # Florestas de elfos
+        self.spawn_tiles(self.tiles_floresta_elfo, max(1, int(self.tamanho * 0.04)))
+        # Vulcões menores
+        self.spawn_tiles(self.tiles_vulcao_menor, max(1, int(self.tamanho * 0.02)))
+        # Tumulões antigos (tumbas)
+        self.spawn_tiles(self.tiles_tumulo_antigo, max(1, int(self.tamanho * 0.03)))
 
     def spawn_tiles(self, tile_set: set[tuple[int, int]], quantidade_alvo: int) -> None:
         while len(tile_set) < quantidade_alvo:
@@ -332,20 +404,43 @@ class Mundo:
                 tile_set.add(pos)
 
     def spawn_animais(self, quantidade_alvo: int) -> None:
+        # Animais reais e fantasy/anime/isekai themed
         especies = [
-            "coelho", "raposa", "lobo", "capivara", "veado", "gato", "javali", "coruja", "lince", "cervo"
+            # Animais reais
+            "coelho", "raposa", "lobo", "capivara", "veado", "gato", "javali", "coruja", "lince", "cervo",
+            # Criaturas de fantasia e anime
+            "dragaozinho", "fenix", "unicórnio", "grifo", "esfinge", "peryton", "kitsune", 
+            "goblin", "slime", "espectro", "wyvern_jovem", "centauro", "naga", "harpia",
+            "elfo_selvagem", "fada_luminosa", "ent_pequeno", "golem_terra", "espelho_magico",
+            "valraven", "shadows_menores", "sprite_florestal", "quimera_pequena", "pegaso",
+            "basilisco_jovem", "demônio_fraco", "anjo_caído", "divindade_menora", "bestia_primor"
         ]
-        personalidades = ["timido", "curioso", "agressivo", "calmo"]
+        personalidades = [
+            # Personalidades básicas
+            "timido", "curioso", "agressivo", "calmo",
+            # Adicionais para fantasy/isekai
+            "nobre", "selvagem", "misterioso", "alegre", "melancolico", "obsessivo", "astuto", 
+            "leal", "traidor", "sarcástico", "compassivo", "destruidor", "protetor", "solitário"
+        ]
         while len(self.animais) < quantidade_alvo:
             pos = self.posicao_livre_aleatoria()
             if pos in self.animais:
                 continue
+            especie = random.choice(especies)
+            personalidade = random.choice(personalidades)
+            # Alguns animais fantasy tem atributos especiais
+            eh_magico = especie in ["dragaozinho", "fenix", "unicórnio", "grifo", "fada_luminosa", 
+                                    "anjo_caído", "divindade_menora", "pegaso", "kitsune", "elfo_selvagem"]
+            eh_perigoso = especie in ["basilisco_jovem", "demônio_fraco", "quimera_pequena", "wyvern_jovem", 
+                                      "naga", "goblin", "shadows_menores", "bestia_primor"]
             self.animais[pos] = {
-                "especie": random.choice(especies),
-                "personalidade": random.choice(personalidades),
+                "especie": especie,
+                "personalidade": personalidade,
                 "domesticado": False,
-                "foge": random.random() < 0.55,
-                "energia": random.randint(2, 8),
+                "foge": random.random() < (0.65 if random.random() < 0.3 else 0.45),  # Fantasy criaturas podem ou não fugir
+                "energia": random.randint(2, 10 if eh_perigoso else 8),
+                "eh_magico": eh_magico,
+                "eh_perigoso": eh_perigoso,
             }
 
     def gerar_sociedade_inicial(self) -> None:
@@ -357,6 +452,20 @@ class Mundo:
             vila_id = f"v{i + 1}"
             casas: list[str] = []
             nome_vila = gerar_nome_local()
+            
+            # Inicializar sistema de plantacoes para a vila
+            plantacoes: list[dict] = []
+            qtd_plantacoes = random.randint(2, 4)
+            for p in range(qtd_plantacoes):
+                tipo_planta = random.choice(list(PLANTAS_DISPONIVEIS.keys()))
+                plantacoes.append({
+                    "id": f"{vila_id}_p{p + 1}",
+                    "tipo": tipo_planta,
+                    "dias_plantados": 0,
+                    "dias_crescimento": PLANTAS_DISPONIVEIS[tipo_planta]["dias_crescimento"],
+                    "colheita_pronta": False,
+                })
+            
             self.vilas[vila_id] = {
                 "id": vila_id,
                 "nome": nome_vila,
@@ -371,6 +480,8 @@ class Mundo:
                 "tem_castelo": False,
                 "tem_internet": False,
                 "imperio": f"Imperio de {gerar_nome_local()}",
+                "plantacoes": plantacoes,  # Sistema de culturas
+                "alimentos_produzidos": 0.0,  # Total de alimentos ja colhidos
             }
 
             for h in range(random.randint(2, 5)):
@@ -423,6 +534,13 @@ class Mundo:
             self.ultimo_evento = "espaco ocupado por outra entidade"
             return False
 
+        # Inicia animacao de movimento para este tile
+        self.movimento_inicio_pos = list(self.humano)
+        self.movimento_fim_pos = [nx, ny]
+        self.movimento_tempo_inicial = time.time()
+        self.movimento_duracao = 0.22  # Duracao do movimento em segundos (caminhada)
+        self.movimento_ativo = True
+        
         self.humano = [nx, ny]
         self.tick_animacao_humano += 1
         self.animar_humano_ate = time.time() + 0.22
@@ -437,14 +555,54 @@ class Mundo:
         return True
 
     def definir_direcao_olhar_por_tile(self, tile_x: int, tile_y: int) -> None:
+        """
+        So atualiza direcao se o mouse estiver dentro de 4 blocos de distancia.
+        Caso contrario, mantem a ultima direcao (standby).
+        """
         dx = tile_x - self.humano[0]
         dy = tile_y - self.humano[1]
+        
+        # Verifica se o mouse esta proximo o suficiente (distancia Manhattan <= 4)
+        distancia = abs(dx) + abs(dy)
+        if distancia > 4:
+            # Mouse muito longe, mantem ultima direcao
+            return
+        
         if dx == 0 and dy == 0:
             return
         if abs(dx) >= abs(dy):
             self.direcao_olhar = "direita" if dx > 0 else "esquerda"
         else:
             self.direcao_olhar = "baixo" if dy > 0 else "cima"
+
+    def obter_posicao_visual(self) -> tuple[float, float]:
+        """
+        Retorna a posicao visual atual do personagem durante animacao de movimento.
+        Se nao esta em movimento, retorna a posicao atual (em humano).
+        Interpolacao suave com easing.
+        """
+        if not self.movimento_ativo or self.movimento_duracao <= 0:
+            return float(self.humano[0]), float(self.humano[1])
+        
+        agora = time.time()
+        tempo_passado = agora - self.movimento_tempo_inicial
+        
+        if tempo_passado >= self.movimento_duracao:
+            # Animacao terminou
+            self.movimento_ativo = False
+            return float(self.humano[0]), float(self.humano[1])
+        
+        # Progresso de 0 a 1
+        progresso = tempo_passado / self.movimento_duracao
+        
+        # Easing suave (ease-out quadratico)
+        progresso_easing = 1 - (1 - progresso) ** 2
+        
+        # Interpolacao
+        vx = self.movimento_inicio_pos[0] + (self.movimento_fim_pos[0] - self.movimento_inicio_pos[0]) * progresso_easing
+        vy = self.movimento_inicio_pos[1] + (self.movimento_fim_pos[1] - self.movimento_inicio_pos[1]) * progresso_easing
+        
+        return vx, vy
 
     def tile_a_frente(self) -> tuple[int, int]:
         dx, dy = DIRECOES.get(self.direcao_olhar, (0, 1))
@@ -505,21 +663,60 @@ class Mundo:
         return resposta
 
     def gerar_quest_raphael(self) -> dict:
+        """Gera uma quest de Raphael usando AI contextualizada ao mundo e jogador."""
+        # Importar aqui para evitar dependência circular
+        from .quest_generation_ai import gerar_quest_dinamica_ai
+        
+        # Tentar criar uma memória básica se não existir
+        if not hasattr(self, '_memoria_temp'):
+            from .modelos import MemoriaRaphael
+            self._memoria_temp = MemoriaRaphael()
+        
         quest_id = f"q_raphael_{len(self.quests_ativas) + 1}"
-        descricao = random.choice([
-            "Investigue rumores de guerra entre dois imperios.",
-            "Proteja uma aldeia durante um festival religioso.",
-            "Busque conhecimento antigo em uma biblioteca esquecida.",
-            "Converse com um mestre arcano e aprenda uma magia nova.",
-        ])
-        quest = {
-            "id": quest_id,
-            "titulo": "Pedido de Raphael",
-            "descricao": descricao,
-            "status": "ativa",
-            "origem": "raphael",
-            "ignorada": False,
-        }
+        
+        try:
+            # Gerar quest contextualizada usando IA
+            quest_data = gerar_quest_dinamica_ai(
+                self,
+                self._memoria_temp,
+                dificuldade_preferida=random.randint(2, 4),
+                tipo_preferido=random.choice(["descoberta", "entrega", "derrota", "coleta"])
+            )
+            
+            # Converter dados IA em formato de quest compatível
+            quest = {
+                "id": quest_id,
+                "titulo": quest_data.get("nome", "Pedido de Raphael"),
+                "descricao": quest_data.get("descricao", "Uma jornada aguarda você."),
+                "status": "ativa",
+                "origem": "raphael",
+                "ignorada": False,
+                "tipo": quest_data.get("tipo", "descoberta"),
+                "dificuldade": quest_data.get("dificuldade", 3),
+                "recompensa_ouro": quest_data.get("recompensa_ouro", 200),
+                "recompensa_exp": quest_data.get("recompensa_exp", 500),
+                "npc_giver": quest_data.get("npc_giver", "Raphael"),
+                "ai_generated": True,
+                "lore_connection": quest_data.get("lore_connection", ""),
+            }
+            
+        except Exception as e:
+            # Fallback para quests básicas se IA falhar
+            print(f"[Quest] Fallback usado: {e}")
+            quest = {
+                "id": quest_id,
+                "titulo": "Pedido de Raphael",
+                "descricao": random.choice([
+                    "Investigue rumores de guerra entre dois imperios.",
+                    "Proteja uma aldeia durante um festival religioso.",
+                    "Busque conhecimento antigo em uma biblioteca esquecida.",
+                    "Converse com um mestre arcano e aprenda uma magia nova.",
+                ]),
+                "status": "ativa",
+                "origem": "raphael",
+                "ignorada": False,
+            }
+        
         self.quests_ativas.append(quest)
         return quest
 
@@ -601,6 +798,32 @@ class Mundo:
 
         self.ultimo_evento = f"ano {self.ano_atual}: vilas evoluiram"
         return self.ultimo_evento
+    
+    def atualizar_culturas_diarias(self) -> None:
+        """Atualiza o crescimento diario das culturas em todas as vilas."""
+        for vila in self.vilas.values():
+            if "plantacoes" not in vila:
+                continue
+            
+            for plantacao in vila["plantacoes"]:
+                if plantacao["colheita_pronta"]:
+                    # Ja foi colhida, replanta a proxima cultura
+                    novo_tipo = random.choice(list(PLANTAS_DISPONIVEIS.keys()))
+                    plantacao["tipo"] = novo_tipo
+                    plantacao["dias_plantados"] = 0
+                    plantacao["dias_crescimento"] = PLANTAS_DISPONIVEIS[novo_tipo]["dias_crescimento"]
+                    plantacao["colheita_pronta"] = False
+                else:
+                    # Incrementa dias plantados
+                    plantacao["dias_plantados"] += 1
+                    dias_necessarios = plantacao["dias_crescimento"]
+                    
+                    # Verifica se a colheita esta pronta
+                    if plantacao["dias_plantados"] >= dias_necessarios:
+                        plantacao["colheita_pronta"] = True
+                        tipo_planta = plantacao["tipo"]
+                        alimento_produzido = PLANTAS_DISPONIVEIS[tipo_planta]["food_yield"]
+                        vila["alimentos_produzidos"] = vila.get("alimentos_produzidos", 0) + alimento_produzido
 
     def expandir_mundo_quando_perto_borda(self, margem: int = 2, bloco: int = 6) -> bool:
         hx, hy = self.humano

@@ -176,6 +176,241 @@ def _renderizar_sprite_personagem(
     tela.blit(sprite, destino)
 
 
+def renderizar_menu_ajuda(tela: pygame.Surface) -> None:
+    """Renderiza menu de ajuda (F1) mostrando todas as teclas, comandos e como jogar."""
+    assets = obter_assets()
+    fonte_texto, fonte_titulo, fonte_subtitulo, _ = _fontes()
+    
+    area = pygame.Rect(40, 20, tela.get_width() - 80, tela.get_height() - 60)
+    assets.painel(tela, area, estilo="beige")
+    
+    titulo = "AJUDA - Controles, Comandos e Como Jogar"
+    tela.blit(fonte_subtitulo.render(titulo, True, (74, 48, 36)), (area.x + 20, area.y + 12))
+    
+    # ===== SECAO 1: MOVIMENTO E ACOES =====
+    secao1_y = area.y + 50
+    tela.blit(fonte_titulo.render("MOVIMENTO E ACOES", True, (146, 98, 70)), (area.x + 20, secao1_y))
+    
+    movimentos = [
+        ("W/Seta Cima", "Mover para cima"),
+        ("A/Seta Esq", "Mover para esquerda"),
+        ("S/Seta Baixo", "Mover para baixo"),
+        ("D/Seta Dir", "Mover para direita"),
+    ]
+    
+    col1_x = area.x + 20
+    col2_x = area.x + area.width // 2
+    y = secao1_y + 28
+    linha_altura = 24
+    
+    for i, (tecla, desc) in enumerate(movimentos):
+        col_x = col1_x if i < 2 else col2_x
+        col_y = y + (i % 2) * linha_altura
+        tela.blit(fonte_titulo.render(f"[{tecla}]", True, (184, 100, 60)), (col_x, col_y))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 110, col_y + 3))
+    
+    y += 60
+    tela.blit(fonte_titulo.render("INTERACOES", True, (146, 98, 70)), (area.x + 20, y))
+    
+    interacoes = [
+        ("G", "Coletar recurso"),
+        ("E", "Escavar tesouro"),
+        ("B", "Construir casa"),
+        ("SPACE", "Atacar inimigo"),
+        ("C", "Matar animal"),
+        ("T", "Acariciar animal"),
+        ("Z", "Descansar"),
+        ("F", "Acao contextual"),
+    ]
+    
+    y += 28
+    for i, (tecla, desc) in enumerate(interacoes):
+        col_x = col1_x if i < 4 else col2_x
+        col_y = y + (i % 4) * linha_altura
+        tela.blit(fonte_titulo.render(f"[{tecla}]", True, (184, 100, 60)), (col_x, col_y))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 110, col_y + 3))
+    
+    y += 110
+    tela.blit(fonte_titulo.render("MENU E NPCs", True, (146, 98, 70)), (area.x + 20, y))
+    
+    menu_keys = [
+        ("Y", "Conversar com NPC"),
+        ("I", "Abrir inventario"),
+        ("R", "Falar com Raphael"),
+        ("F1", "Abrir ajuda"),
+        ("F2", "Ver lore"),
+        ("F5", "Salvar jogo"),
+        ("F6", "Salvar como novo"),
+        ("ESC", "Menu de pausa"),
+        ("1-9", "Usar poderes"),
+    ]
+    
+    y += 28
+    for i, (tecla, desc) in enumerate(menu_keys):
+        col_x = col1_x if i < 5 else col2_x
+        col_y = y + (i % 5) * linha_altura
+        tela.blit(fonte_titulo.render(f"[{tecla}]", True, (184, 100, 60)), (col_x, col_y))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 110, col_y + 3))
+    
+    # ===== SECAO 2: COMANDOS DE CHAT =====
+    y += 130
+    tela.blit(fonte_titulo.render("COMANDOS DE CHAT (Pressione R)", True, (146, 98, 70)), (area.x + 20, y))
+    
+    chat_cmds = [
+        ("!quest / !missao", "Gera uma quest contextualizada ao seu personagem"),
+        ("!profecia", "Gera quest sobre a profecia do mundo"),
+        ("!conflito", "Gera quest envolvendo o conflito principal"),
+        ("!history / !historico", "Mostra suas estatisticas de acoes"),
+        ("!stats", "Resumo estatistico do gameplay"),
+        ("!recent / !recentes", "Mostra suas ultimas 15 acoes com posicao"),
+    ]
+    
+    y += 28
+    for tecla, desc in chat_cmds:
+        tela.blit(fonte_titulo.render(f"{tecla}", True, (184, 100, 60)), (area.x + 20, y))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (area.x + 280, y + 2))
+        y += 26
+    
+    # ===== DICAS =====
+    y += 10
+    dicas = [
+        "DICA: Use chat commands (R) para gerar quests personalizadas ao seu mundo e personagem!",
+        "DICA: Seus quests sao contextualizados a sua origem, legado, motivacao e segredo.",
+        "DICA: Pressione F2 para ver a lore detalhada do mundo e seu destino.",
+    ]
+    
+    for dica in dicas:
+        tela.blit(fonte_pequena.render(dica, True, (146, 98, 70)), (area.x + 20, y))
+        y += 22
+    
+    instrucoes = "ESC para fechar | Sua jornada sera guiada pelo conhecimento"
+    tela.blit(fonte_texto.render(instrucoes, True, (146, 98, 70)), (area.x + 20, area.bottom - 30))
+
+
+def renderizar_menu_lore(tela: pygame.Surface, mundo, raphael_memoria) -> None:
+    """Renderiza menu de lore (F2) mostrando mundo e lore do personagem."""
+    assets = obter_assets()
+    fonte_texto, fonte_titulo, fonte_subtitulo, _ = _fontes()
+    
+    area = pygame.Rect(60, 40, tela.get_width() - 120, tela.get_height() - 100)
+    assets.painel(tela, area, estilo="beige")
+    
+    titulo = "O MUNDO E SEU DESTINO"
+    tela.blit(fonte_subtitulo.render(titulo, True, (74, 48, 36)), (area.x + 20, area.y + 12))
+    
+    col1 = pygame.Rect(area.x + 20, area.y + 60, area.width // 2 - 30, area.height - 120)
+    col2 = pygame.Rect(area.centerx + 10, area.y + 60, area.width // 2 - 30, area.height - 120)
+    
+    assets.painel(tela, col1, estilo="brown", inset=True, alpha=230)
+    assets.painel(tela, col2, estilo="brown", inset=True, alpha=230)
+    
+    # Coluna 1: Lore do Mundo
+    tela.blit(fonte_titulo.render("LORE DO MUNDO", True, (245, 233, 210)), (col1.x + 10, col1.y + 8))
+    
+    world_lore = mundo.world_lore if hasattr(mundo, 'world_lore') else {}
+    eixo = world_lore.get("eixo_historico", "O mundo passa por transformacoes desconhecidas.")
+    era = world_lore.get("era_inicial", 1500)
+    conflito = world_lore.get("conflito_principal", "Conflito desconhecido")
+    lugar = world_lore.get("lugar_mstico", {}).get("descricao", "Um lugar esquecido")
+    
+    lore_linhas = quebrar_texto(fonte_texto, f"Era: {era} | {eixo}", col1.width - 20)
+    lore_linhas.append("")
+    lore_linhas.extend(quebrar_texto(fonte_texto, f"Conflito: {conflito}", col1.width - 20))
+    lore_linhas.append("")
+    lore_linhas.extend(quebrar_texto(fonte_texto, f"Lugar Mistico: {lugar}", col1.width - 20))
+    
+    for i, linha in enumerate(lore_linhas[:7]):
+        tela.blit(fonte_texto.render(linha, True, (228, 205, 182)), (col1.x + 10, col1.y + 40 + i * 22))
+    
+    # Coluna 2: Lore do Personagem
+    tela.blit(fonte_titulo.render(f"{mundo.nome_humano}", True, (245, 233, 210)), (col2.x + 10, col2.y + 8))
+    
+    perfil = mundo.perfil_jogador if hasattr(mundo, 'perfil_jogador') else {}
+    profecia = world_lore.get("profecia", "Destino desconhecido")
+    legenda = world_lore.get("legenda", "Uma lenda antiga")
+    
+    info_linhas = [
+        f"Idade: {mundo.idade_humano} anos",
+        f"",
+        f"Profecia: {profecia[:50]}...",
+        f"",
+        f"Legenda: {legenda[:50]}...",
+        f"",
+        f"Legado: {perfil.get('legado', 'Desconhecido')[:40]}...",
+    ]
+    
+    for i, linha in enumerate(info_linhas):
+        if linha:
+            tela.blit(fonte_texto.render(linha, True, (228, 205, 182)), (col2.x + 10, col2.y + 40 + i * 22))
+    
+    instrucoes = "ESC para fechar | Seu destino ja esta escrito nas cronicas"
+    tela.blit(fonte_texto.render(instrucoes, True, (146, 98, 70)), (area.x + 20, area.bottom - 40))
+
+
+def renderizar_menu_pausa(
+    tela: pygame.Surface,
+    mundo,
+    opcao_selecionada: int = 0,
+    tempo_sistema=None,
+    historico_chat=None,
+) -> None:
+    """Renderiza menu de pausa (ESC) com opcoes."""
+    assets = obter_assets()
+    fonte_texto, fonte_titulo, fonte_subtitulo, _ = _fontes()
+    
+    # Escurecer fundo
+    overlay = pygame.Surface((tela.get_width(), tela.get_height()), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    tela.blit(overlay, (0, 0))
+    
+    area = pygame.Rect(
+        tela.get_width() // 2 - 220,
+        tela.get_height() // 2 - 200,
+        440,
+        400
+    )
+    assets.painel(tela, area, estilo="beige")
+    
+    titulo = "PAUSADO"
+    tela.blit(fonte_subtitulo.render(titulo, True, (74, 48, 36)), (area.centerx - fonte_subtitulo.size(titulo)[0] // 2, area.y + 20))
+    
+    opcoes = [
+        "Retomar Jogo",
+        "Salvar e Continuar",
+        "Salvar Como Novo Save",
+        "Mudar Configuracoes",
+        "Voltar ao Menu",
+        "Sair do Jogo",
+    ]
+    
+    botao_altura = 50
+    botao_largura = 340
+    espaco = 8
+    total_altura = len(opcoes) * botao_altura + (len(opcoes) - 1) * espaco
+    inicio_y = area.y + 80
+    
+    for i, opcao_texto in enumerate(opcoes):
+        botao = pygame.Rect(
+            area.centerx - botao_largura // 2,
+            inicio_y + i * (botao_altura + espaco),
+            botao_largura,
+            botao_altura
+        )
+        
+        ativo = (i == opcao_selecionada)
+        cor_fundo = (184, 100, 60) if ativo else (146, 98, 70)
+        cor_texto = (245, 233, 210) if ativo else (200, 170, 140)
+        
+        pygame.draw.rect(tela, cor_fundo, botao, border_radius=8)
+        pygame.draw.rect(tela, (245, 233, 210) if ativo else (112, 74, 48), botao, 3, border_radius=8)
+        
+        texto = fonte_titulo.render(opcao_texto, True, cor_texto)
+        tela.blit(texto, (botao.centerx - texto.get_width() // 2, botao.centery - texto.get_height() // 2))
+    
+    instrucoes = "Use Setas para navegar | ENTER para selecionar | ESC para cancelar"
+    tela.blit(fonte_texto.render(instrucoes, True, (112, 74, 48)), (area.x + 16, area.bottom - 32))
+
+
 def renderizar_mundo(
     tela: pygame.Surface,
     mundo,
@@ -286,7 +521,15 @@ def renderizar_mundo(
                     _renderizar_sprite_personagem(tela, rect, npc.get("perfil", {}), "baixo", tick_visual, animar=False)
 
     hx, hy = mundo.humano
-    rect_humano = pygame.Rect((hx - camera_x) * TAMANHO_CELULA, (hy - camera_y) * TAMANHO_CELULA, TAMANHO_CELULA, TAMANHO_CELULA)
+    
+    # Obtem a posicao visual interpolada durante animacao de movimento
+    if hasattr(mundo, 'obter_posicao_visual'):
+        vx, vy = mundo.obter_posicao_visual()
+    else:
+        vx, vy = float(hx), float(hy)
+    
+    # Renderiza o personagem na posicao interpolada
+    rect_humano = pygame.Rect((vx - camera_x) * TAMANHO_CELULA, (vy - camera_y) * TAMANHO_CELULA, TAMANHO_CELULA, TAMANHO_CELULA)
     sombra = pygame.Surface((rect_humano.width, 12), pygame.SRCALPHA)
     pygame.draw.ellipse(sombra, (0, 0, 0, 70), sombra.get_rect())
     tela.blit(sombra, (rect_humano.x, rect_humano.bottom - 8))

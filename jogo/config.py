@@ -78,8 +78,6 @@ TECLAS_PODER_CANDIDATAS = [
     pygame.K_8,
     pygame.K_9,
     pygame.K_0,
-    pygame.K_F1,
-    pygame.K_F2,
     pygame.K_F3,
     pygame.K_F4,
     pygame.K_F6,
@@ -89,4 +87,21 @@ TECLAS_PODER_CANDIDATAS = [
     pygame.K_F10,
     pygame.K_F11,
     pygame.K_F12,
+]
+
+# Letras disponiveis para poderes quando inventario esta baixo (0-1 itens)
+# Exclui letras reservadas: w, a, s, d, g, e, b, c, t, i, z, f, y, r
+TECLAS_PODER_LETRAS = [
+    pygame.K_h,
+    pygame.K_j,
+    pygame.K_k,
+    pygame.K_l,
+    pygame.K_m,
+    pygame.K_n,
+    pygame.K_o,
+    pygame.K_p,
+    pygame.K_q,
+    pygame.K_u,
+    pygame.K_v,
+    pygame.K_x,
 ]

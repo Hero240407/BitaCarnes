@@ -2,6 +2,7 @@ import json
 import random
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
 
 import pygame
 
@@ -16,8 +17,20 @@ from .servicos import (
     gerar_itens_iniciais_raphael,
     salvar_jogo,
     tecla_nome,
+    SAVE_DIR,
+    normalizar_nome_save,
 )
-from .ui import calcular_camera, menu_inicial, renderizar_chat, renderizar_inventario, renderizar_mundo
+from .ui import calcular_camera, menu_inicial, renderizar_chat, renderizar_inventario, renderizar_mundo, renderizar_menu_ajuda, renderizar_menu_lore, renderizar_menu_pausa
+
+# Novos sistemas Stardew Valley
+from .farming import FarmManager
+from .npc_relations import GerenciadorRelacoes, ComportamentoNPC
+from .calendar import Calendario
+from .quests import QuestManager, ObjetivoGeral
+from .fishing import MiniGamePesca, HistoricoPesca
+from .weather import SistemaClima
+from .ui_enhanced import renderizar_hud_expandida
+from .action_logger import ActionLogger
 
 
 def _tela_geracao_mundo(tela: pygame.Surface, relogio: pygame.time.Clock, futuro: Future) -> tuple:
@@ -165,6 +178,22 @@ def rodar() -> None:
 
     print(f"[Raphael] Mundo pronto para jogar!")
 
+    # Sistemas Stardew Valley
+    farm_manager = FarmManager(tamanho_farm=20)
+    relacao_gerenciador = GerenciadorRelacoes()
+    calendario = Calendario(ano_inicial=1)
+    quest_manager = QuestManager()
+    objetivo_geral = ObjetivoGeral()
+    pesca_manager = MiniGamePesca()
+    historico_pesca = HistoricoPesca()
+    clima_sistema = SistemaClima()
+
+    # Sistema de registro de ações do jogador
+    save_dir = SAVE_DIR / normalizar_nome_save(save_atual) if save_atual else SAVE_DIR / "temp_save"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    action_logger = ActionLogger(save_dir / "player_history.db")
+    print(f"[Sistema] Action Logger inicializado: {save_dir / 'player_history.db'}")
+
     rodando = True
     tick = 0
     ultimo_tempo_acao = 0.0
@@ -180,9 +209,14 @@ def rodar() -> None:
     modo_input: str | None = None
     texto_input = ""
     pausado = False
+    menu_aberto: str | None = None
+    opcao_pausa_selecionada = 0
+    ultimo_tempo_menu_nav = 0.0
     inventario_aberto = False
     indice_inventario_hover: int | None = None
     ultimo_update_animais = time.time()
+    ultimo_dia_culturas = tempo_sistema.dia  # Rastrear dia anterior para atualizacoes de culturas
+    ultimo_dia_calendario = calendario.dia_mes  # Rastrear para eventos de novo dia
     executor = ThreadPoolExecutor(max_workers=1)
     futuro_raphael: Future | None = None
     tipo_futuro: str | None = None
@@ -222,9 +256,67 @@ def rodar() -> None:
                     mundo.definir_direcao_olhar_por_tile(tile_x, tile_y)
             elif evento.type == pygame.KEYDOWN:
                 agora = time.time()
-                if evento.key == pygame.K_ESCAPE and modo_input is None:
-                    pausado = not pausado
-                    historico_chat.append("Sistema: jogo pausado" if pausado else "Sistema: jogo retomado")
+                
+                # Menus keyboard handling
+                if menu_aberto == "pausa":
+                    if evento.key == pygame.K_ESCAPE:
+                        menu_aberto = None
+                        pausado = False
+                        continue
+                    elif evento.key == pygame.K_UP and agora - ultimo_tempo_menu_nav > 0.15:
+                        opcao_pausa_selecionada = (opcao_pausa_selecionada - 1) % 6
+                        ultimo_tempo_menu_nav = agora
+                        continue
+                    elif evento.key == pygame.K_DOWN and agora - ultimo_tempo_menu_nav > 0.15:
+                        opcao_pausa_selecionada = (opcao_pausa_selecionada + 1) % 6
+                        ultimo_tempo_menu_nav = agora
+                        continue
+                    elif evento.key == pygame.K_RETURN:
+                        if opcao_pausa_selecionada == 0:  # Retomar Jogo
+                            menu_aberto = None
+                            pausado = False
+                        elif opcao_pausa_selecionada == 1:  # Salvar e Continuar
+                            nome_final = salvar_jogo(save_atual, mundo, memoria, {"tick": tick, "timestamp": time.time(), "versao": 1})
+                            save_atual = nome_final
+                            historico_chat.append(f"Sistema: save '{nome_final}' gravado")
+                            menu_aberto = None
+                            pausado = False
+                        elif opcao_pausa_selecionada == 2:  # Salvar Como Novo Save
+                            modo_input = "salvar_como"
+                            texto_input = ""
+                            menu_aberto = None
+                        elif opcao_pausa_selecionada == 3:  # Mudar Configuracoes
+                            menu_aberto = None
+                            pausado = False
+                            historico_chat.append("Sistema: Abra as configuracoes no menu principal (nao implementado ainda)")
+                        elif opcao_pausa_selecionada == 4:  # Voltar ao Menu
+                            modo_input = None
+                            rodando = False
+                        elif opcao_pausa_selecionada == 5:  # Sair do Jogo
+                            rodando = False
+                        continue
+                elif menu_aberto in {"ajuda", "lore"}:
+                    if evento.key == pygame.K_ESCAPE:
+                        menu_aberto = None
+                        pausado = False
+                        continue
+                
+                # F1 - Help menu
+                if evento.key == pygame.K_F1 and modo_input is None:
+                    menu_aberto = "ajuda"
+                    pausado = True
+                    continue
+                
+                # F2 - Lore menu
+                if evento.key == pygame.K_F2 and modo_input is None:
+                    menu_aberto = "lore"
+                    pausado = True
+                    continue
+                
+                if evento.key == pygame.K_ESCAPE and modo_input is None and menu_aberto is None:
+                    menu_aberto = "pausa"
+                    pausado = True
+                    opcao_pausa_selecionada = 0
                     continue
 
                 if modo_input is None and evento.key == pygame.K_i:
@@ -243,10 +335,46 @@ def rodar() -> None:
                         if modo_input == "chat" and texto_final:
                             historico_chat.append(f"Voce: {texto_final}")
                             memoria.avisos_jogador += 1
-                            if "missao" in texto_final.lower() or "quest" in texto_final.lower():
+                            
+                            # Check for special commands
+                            if texto_final.lower() in ["!history", "!historico", "!stats", "!estatisticas"]:
+                                from .history_utils import format_action_statistics
+                                stats_text = format_action_statistics(action_logger)
+                                historico_chat.append(stats_text)
+                            elif texto_final.lower() in ["!recent", "!recentes"]:
+                                from .history_utils import get_action_summary
+                                summary_text = get_action_summary(action_logger, action_count=15)
+                                historico_chat.append(summary_text)
+                            elif texto_final.lower() in ["!quest", "!missao", "!questao"]:
+                                # Generate AI-powered contextual quest
                                 q = mundo.gerar_quest_raphael()
-                                historico_chat.append(f"Sistema: Nova quest - {q['descricao']}")
-                            if "item" in texto_final.lower() and ("criar" in texto_final.lower() or "gerar" in texto_final.lower()):
+                                titulo = q.get("titulo", "Quest de Raphael")
+                                desc = q.get("descricao", "Uma jornada aguarda")
+                                recompensa = q.get("recompensa_ouro", 100)
+                                historico_chat.append(f"Raphael: {titulo}")
+                                historico_chat.append(f"Sistema: {desc}")
+                                historico_chat.append(f"Recompensa: {recompensa} ouro")
+                            elif texto_final.lower() in ["!profecia", "!prophecy"]:
+                                # Generate prophecy-driven quest
+                                from .quest_generation_ai import gerar_quest_prophecy
+                                quest_prof = gerar_quest_prophecy(mundo, memoria)
+                                if quest_prof:
+                                    historico_chat.append(f"Raphael: Sobre a profecia...")
+                                    historico_chat.append(f"Sistema: {quest_prof.get('descricao', 'Um passo em direção ao destino')}")
+                                    historico_chat.append(f"Dificuldade: {'⭐' * quest_prof.get('dificuldade', 3)}")
+                                else:
+                                    historico_chat.append("Raphael: Ainda não consigo ler a profecia claramente.")
+                            elif texto_final.lower() in ["!conflito", "!conflict"]:
+                                # Generate conflict-driven quest
+                                from .quest_generation_ai import gerar_quest_conflito_principal
+                                quest_conf = gerar_quest_conflito_principal(mundo, memoria)
+                                if quest_conf:
+                                    historico_chat.append(f"Raphael: O conflito reclama sua atenção...")
+                                    historico_chat.append(f"Sistema: {quest_conf.get('descricao', 'Você é envolvido no conflito')}")
+                                    historico_chat.append(f"Dificuldade: {'⭐' * quest_conf.get('dificuldade', 4)}")
+                                else:
+                                    historico_chat.append("Raphael: O conflito permanece obscuro.")
+                            elif "item" in texto_final.lower() and ("criar" in texto_final.lower() or "gerar" in texto_final.lower()):
                                 novos = gerar_itens_iniciais_raphael(mundo.nome_humano, quantidade=3)
                                 for item in novos:
                                     item["equipado"] = False
@@ -413,6 +541,39 @@ def rodar() -> None:
 
                 if evento.key in {pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d, pygame.K_g, pygame.K_e, pygame.K_b, pygame.K_SPACE, pygame.K_c, pygame.K_t, pygame.K_z, pygame.K_f, pygame.K_y}:
                     memoria.adicionar_evento(f"Acao do jogador: {mundo.ultimo_evento}")
+                    
+                    # Log to action database
+                    action_type_map = {
+                        pygame.K_w: 'move_up',
+                        pygame.K_s: 'move_down',
+                        pygame.K_a: 'move_left',
+                        pygame.K_d: 'move_right',
+                        pygame.K_g: 'collect',
+                        pygame.K_e: 'dig',
+                        pygame.K_b: 'build_house',
+                        pygame.K_SPACE: 'attack',
+                        pygame.K_c: 'kill_animal',
+                        pygame.K_t: 'pet_animal',
+                        pygame.K_z: 'rest',
+                        pygame.K_f: 'contextual_action',
+                        pygame.K_y: 'talk_npc',
+                    }
+                    action_type = action_type_map.get(evento.key, 'unknown_action')
+                    
+                    action_logger.log_action(
+                        tick=tick,
+                        timestamp=time.time(),
+                        action_type=action_type,
+                        description=mundo.ultimo_evento,
+                        player_x=mundo.humano[0],
+                        player_y=mundo.humano[1],
+                        player_hp=mundo.hp,
+                        player_food=mundo.inventario.get("comida", 0),
+                        player_morale=mundo.moralidade_jogador,
+                        details={
+                            'evento': mundo.ultimo_evento,
+                        }
+                    )
 
                 if contador_intervencao >= intervalo_observacao:
                     fala, efeito = raphael.observar_e_talvez_interferir(mundo, mundo.ultimo_evento, tempo_sistema)
@@ -433,6 +594,36 @@ def rodar() -> None:
         if not pausado and (agora_frame - ultimo_update_animais) >= 0.9:
             mundo.atualizar_animais()
             ultimo_update_animais = agora_frame
+        
+        # Atualizar culturas diariamente
+        if not pausado and tempo_sistema.dia > ultimo_dia_culturas:
+            mundo.atualizar_culturas_diarias()
+            ultimo_dia_culturas = tempo_sistema.dia
+            
+            # === Atualizações dos novos sistemas Stardew Valley ===
+            # Avançar calendário
+            eventos_calendario = calendario.avancar_dia()
+            if eventos_calendario["novo_ano"]:
+                historico_chat.append(f"🎆 {eventos_calendario['mensagem']}")
+            if eventos_calendario["festival"]:
+                historico_chat.append(eventos_calendario['mensagem'])
+            
+            # Avançar clima
+            clima_tipo, msg_clima = clima_sistema.avancar_dia(calendario.estacao.value)
+            historico_chat.append(f"Clima: {msg_clima}")
+            
+            # Atualizar farm
+            farm_manager.avancar_dia()
+            
+            # Atualizar relacionamentos
+            relacao_gerenciador.avancar_dia()
+            
+            # Atualizar quests
+            quest_manager.avancar_dia()
+            
+            # Registrar no histórico
+            memoria.adicionar_evento(f"Dia {calendario.dia_mes} de {calendario.estacao_nome}, Ano {calendario.ano}")
+
 
         # Resultado assíncrono do Raphael (sem travar o jogo).
         if futuro_raphael is not None and futuro_raphael.done():
@@ -503,6 +694,15 @@ def rodar() -> None:
         renderizar_chat(tela, historico_chat, fonte_hud, modo_input, texto_input, modo_escuro=modo_escuro)
         if inventario_aberto:
             renderizar_inventario(tela, mundo, indice_inventario_hover)
+        
+        # Renderizar menus
+        if menu_aberto == "ajuda":
+            renderizar_menu_ajuda(tela)
+        elif menu_aberto == "lore":
+            renderizar_menu_lore(tela, mundo, memoria)
+        elif menu_aberto == "pausa":
+            renderizar_menu_pausa(tela, mundo, opcao_pausa_selecionada, tempo_sistema, historico_chat)
+        
         if cfg.get("mostrar_fps", False):
             fps = int(relogio.get_fps())
             texto_fps = fonte_hud.render(f"FPS: {fps}", True, (242, 236, 214))

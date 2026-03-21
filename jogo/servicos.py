@@ -16,6 +16,7 @@ from .config import (
     OBJETIVO_PATH,
     SAVE_DIR,
     TECLAS_PODER_CANDIDATAS,
+    TECLAS_PODER_LETRAS,
     TECLAS_RESERVADAS,
 )
 from .modelos import MemoriaRaphael, Mundo, SistemaTempo
@@ -231,8 +232,8 @@ class Raphael:
         fala = None
         efeito = None
 
-        # Fala automática sem chamada remota para não travar o loop.
-        if random.random() < 0.30:
+        # Raphael fala raramente - reduzido para nao intervir tanto (apenas 8% das vezes)
+        if random.random() < 0.08:
             tons = [
                 "Observo seus passos com curiosidade.",
                 "Seu caminho revela suas intenções.",
@@ -242,14 +243,16 @@ class Raphael:
             fala = f"{random.choice(tons)} Ação recente: {acao_recente}."
             self.memoria.adicionar_conversa("Raphael", fala)
 
-        if random.random() < 0.12:
-            if mundo.moralidade_jogador < -35:
+        # Raphael intervem muito raramente - reduzido de 0.12 para 0.04 (4% das vezes)
+        # Prefere observar de distancia, testando os dignos
+        if random.random() < 0.04:
+            if mundo.moralidade_jogador < -50:  # Muito pior comportamento para intervir
                 efeito = self.manipular_mundo(mundo, random.choice(["comida_escassa", "armadilhas_aumentadas"]), tempo)
-            elif mundo.hp < max(3, mundo.hp_maximo * 0.2):
+            elif mundo.hp < max(2, mundo.hp_maximo * 0.1):  # Apenas quando prestes a morrer
                 efeito = self.manipular_mundo(mundo, "reviver", tempo)
-            elif tempo is not None and random.random() < 0.30:
+            elif tempo is not None and random.random() < 0.15:  # Muito raro avançar tempo
                 efeito = self.manipular_mundo(mundo, random.choice(["parar_ou_retomar_tempo", "avancar_tempo"]), tempo)
-            elif random.random() < 0.5:
+            elif random.random() < 0.3:  # Intervencoes positivas muito raras
                 efeito = self.manipular_mundo(mundo, "chuva_bencao", tempo)
 
         return fala, efeito
@@ -316,9 +319,14 @@ class Raphael:
 
             tecla = None
             if tipo != "defesa_divina":
-                tecla = proxima_tecla_poder(teclas_usadas)
+                # Verifica se inventario esta baixo (0-1 itens)
+                inventario_items = len(mundo.inventario_itens) if hasattr(mundo, 'inventario_itens') else 0
+                inventario_baixo = inventario_items <= 1
+                
+                tecla = proxima_tecla_poder(teclas_usadas, inventario_baixo=inventario_baixo)
                 if tecla is None:
-                    return False, "Nao ha teclas livres para novos dons.", None
+                    msg = "Nao ha teclas de letra livres neste momento." if inventario_baixo else "Nao ha teclas livres para novos dons."
+                    return False, msg, None
 
             return True, motivo, {
                 "id": tipo,
@@ -362,6 +370,7 @@ def chamar_ollama(prompt: str, modelo: str, timeout: int = 30, temperature: floa
 
 def _itens_fallback() -> list[dict]:
     return [
+        # Armas
         {
             "nome": "Lamina do Novato Isekai",
             "tipo": "espada",
@@ -371,6 +380,56 @@ def _itens_fallback() -> list[dict]:
             "bonus": {"ataque": 2, "defesa": 0, "hp": 0, "sorte": 0, "coleta": 0},
         },
         {
+            "nome": "Espada do Dragao Legendario",
+            "tipo": "espada_grande",
+            "slot": "arma",
+            "raridade": "epico",
+            "descricao": "Blade que capturou a essencia de um dragao ancestral.",
+            "bonus": {"ataque": 5, "defesa": 1, "hp": 2, "sorte": 2, "coleta": 0},
+        },
+        {
+            "nome": "Arco da Deusa Lunar",
+            "tipo": "arco",
+            "slot": "arma",
+            "raridade": "raro",
+            "descricao": "Arco que dispara flechas de luz lunar, nunca erra o alvo.",
+            "bonus": {"ataque": 4, "defesa": 0, "hp": 1, "sorte": 3, "coleta": 0},
+        },
+        {
+            "nome": "Picareta do Mineiro Arcano",
+            "tipo": "picareta",
+            "slot": "arma",
+            "raridade": "incomum",
+            "descricao": "Ferramenta robusta para escavar e lutar em cavernas arcanas.",
+            "bonus": {"ataque": 1, "defesa": 0, "hp": 0, "sorte": 0, "coleta": 3},
+        },
+        {
+            "nome": "Vara magica do Aprendiz",
+            "tipo": "vara",
+            "slot": "arma",
+            "raridade": "incomum",
+            "descricao": "Vara de mago em formacao, canaliza pequenas magias.",
+            "bonus": {"ataque": 1, "defesa": 1, "hp": 1, "sorte": 1, "coleta": 0},
+        },
+        {
+            "nome": "Lanca da Valkyria",
+            "tipo": "lanca",
+            "slot": "arma",
+            "raridade": "raro",
+            "descricao": "Arma divina que vibra com o poder das valquirias nordicas.",
+            "bonus": {"ataque": 4, "defesa": 2, "hp": 2, "sorte": 1, "coleta": 0},
+        },
+        {
+            "nome": "Adaga da Sombra Negra",
+            "tipo": "adaga",
+            "slot": "arma",
+            "raridade": "raro",
+            "descricao": "Adaga forjada em sombra purificada, rapida e letal.",
+            "bonus": {"ataque": 3, "defesa": 0, "hp": 0, "sorte": 2, "coleta": 0},
+        },
+        
+        # Armaduras
+        {
             "nome": "Peitoral de Couro de Aventureiro",
             "tipo": "armadura",
             "slot": "armadura",
@@ -379,36 +438,12 @@ def _itens_fallback() -> list[dict]:
             "bonus": {"ataque": 0, "defesa": 2, "hp": 4, "sorte": 0, "coleta": 0},
         },
         {
-            "nome": "Anel da Sorte de Guilda",
-            "tipo": "anel",
-            "slot": "acessorio",
-            "raridade": "raro",
-            "descricao": "Um anel que atrai encontros favoraveis e descansos melhores.",
-            "bonus": {"ataque": 0, "defesa": 0, "hp": 0, "sorte": 2, "coleta": 1},
-        },
-        {
-            "nome": "Reliquia de Mana Dourada",
-            "tipo": "reliquia",
-            "slot": "reliquia",
+            "nome": "Armadura de Dragao Azul",
+            "tipo": "armadura_pesada",
+            "slot": "armadura",
             "raridade": "epico",
-            "descricao": "Fragmento antigo que fortalece o corpo do heroi.",
-            "bonus": {"ataque": 1, "defesa": 1, "hp": 6, "sorte": 1, "coleta": 0},
-        },
-        {
-            "nome": "Po de Teleporte Curto",
-            "tipo": "consumivel",
-            "slot": "consumivel",
-            "raridade": "incomum",
-            "descricao": "Cristais de viagem usados em contos de outro mundo.",
-            "bonus": {"ataque": 0, "defesa": 0, "hp": 2, "sorte": 0, "coleta": 0},
-        },
-        {
-            "nome": "Picareta do Mineiro Arcano",
-            "tipo": "ferramenta",
-            "slot": "arma",
-            "raridade": "incomum",
-            "descricao": "Ferramenta robusta para escavar e lutar em cavernas.",
-            "bonus": {"ataque": 1, "defesa": 0, "hp": 0, "sorte": 0, "coleta": 2},
+            "descricao": "Escamas de dragao azul forjadas em aco divino.",
+            "bonus": {"ataque": 1, "defesa": 6, "hp": 12, "sorte": 0, "coleta": 0},
         },
         {
             "nome": "Manto do Erudito Lunar",
@@ -416,7 +451,33 @@ def _itens_fallback() -> list[dict]:
             "slot": "armadura",
             "raridade": "raro",
             "descricao": "Manto elegante de academias magicas de fantasia.",
-            "bonus": {"ataque": 0, "defesa": 1, "hp": 3, "sorte": 1, "coleta": 0},
+            "bonus": {"ataque": 0, "defesa": 1, "hp": 3, "sorte": 2, "coleta": 1},
+        },
+        {
+            "nome": "Gibao de Malha Elvica",
+            "tipo": "gibao",
+            "slot": "armadura",
+            "raridade": "incomum",
+            "descricao": "Malha feita por elfos antigos, leve e resistente.",
+            "bonus": {"ataque": 0, "defesa": 3, "hp": 2, "sorte": 1, "coleta": 0},
+        },
+        {
+            "nome": "Veste Shimmer do Isekai",
+            "tipo": "veste_magica",
+            "slot": "armadura",
+            "raridade": "raro",
+            "descricao": "Roupa que brilha com mana do mundo alternativo.",
+            "bonus": {"ataque": 0, "defesa": 2, "hp": 5, "sorte": 2, "coleta": 0},
+        },
+        
+        # Acessórios
+        {
+            "nome": "Anel da Sorte de Guilda",
+            "tipo": "anel",
+            "slot": "acessorio",
+            "raridade": "raro",
+            "descricao": "Um anel que atrai encontros favoraveis e descansos melhores.",
+            "bonus": {"ataque": 0, "defesa": 0, "hp": 0, "sorte": 3, "coleta": 2},
         },
         {
             "nome": "Broche da Primeira Quest",
@@ -425,6 +486,98 @@ def _itens_fallback() -> list[dict]:
             "raridade": "comum",
             "descricao": "Marca de quem aceitou a jornada sem hesitar.",
             "bonus": {"ataque": 0, "defesa": 1, "hp": 1, "sorte": 1, "coleta": 0},
+        },
+        {
+            "nome": "Amuleto do Dragao Dourado",
+            "tipo": "amuleto",
+            "slot": "acessorio",
+            "raridade": "epico",
+            "descricao": "Amuleto que protege contra todo tipo de maldicao.",
+            "bonus": {"ataque": 0, "defesa": 3, "hp": 5, "sorte": 2, "coleta": 0},
+        },
+        {
+            "nome": "Colar de Perola Celestial",
+            "tipo": "colar",
+            "slot": "acessorio",
+            "raridade": "raro",
+            "descricao": "Pérola que brilha com luz celestial, conforta o usuario.",
+            "bonus": {"ataque": 0, "defesa": 1, "hp": 4, "sorte": 1, "coleta": 0},
+        },
+        {
+            "nome": "Anel de Invisibilidade Menor",
+            "tipo": "anel",
+            "slot": "acessorio",
+            "raridade": "raro",
+            "descricao": "Anel que torna o usuario discreto por curtos periodos.",
+            "bonus": {"ataque": 0, "defesa": 2, "hp": 0, "sorte": 3, "coleta": 0},
+        },
+        
+        # Reliquias
+        {
+            "nome": "Reliquia de Mana Dourada",
+            "tipo": "reliquia",
+            "slot": "reliquia",
+            "raridade": "epico",
+            "descricao": "Fragmento antigo que fortalece o corpo do heroi.",
+            "bonus": {"ataque": 1, "defesa": 1, "hp": 8, "sorte": 1, "coleta": 0},
+        },
+        {
+            "nome": "Cristal de Alma Ancestral",
+            "tipo": "cristal",
+            "slot": "reliquia",
+            "raridade": "epico",
+            "descricao": "Cristal que contem a sabedoria de gerações passadas.",
+            "bonus": {"ataque": 2, "defesa": 2, "hp": 6, "sorte": 3, "coleta": 1},
+        },
+        {
+            "nome": "Pedra Lunar Maldita",
+            "tipo": "pedra",
+            "slot": "reliquia",
+            "raridade": "raro",
+            "descricao": "Pedra que captura luz lunar e a transforma em poder.",
+            "bonus": {"ataque": 1, "defesa": 0, "hp": 4, "sorte": 2, "coleta": 0},
+        },
+        {
+            "nome": "Fragmento do Deus Perdido",
+            "tipo": "fragmento",
+            "slot": "reliquia",
+            "raridade": "lendario",
+            "descricao": "Pedaco de um deus que desapareceu nos tempos antigos.",
+            "bonus": {"ataque": 3, "defesa": 3, "hp": 10, "sorte": 3, "coleta": 2},
+        },
+        
+        # Consumíveis
+        {
+            "nome": "Po de Teleporte Curto",
+            "tipo": "po",
+            "slot": "consumivel",
+            "raridade": "incomum",
+            "descricao": "Cristais de viagem usados em contos de outro mundo.",
+            "bonus": {"ataque": 0, "defesa": 0, "hp": 2, "sorte": 0, "coleta": 0},
+        },
+        {
+            "nome": "Pocao de Vida Isekai",
+            "tipo": "pocao",
+            "slot": "consumivel",
+            "raridade": "comum",
+            "descricao": "Pocao vermelha que restaura muita saude rapidamente.",
+            "bonus": {"ataque": 0, "defesa": 0, "hp": 6, "sorte": 0, "coleta": 0},
+        },
+        {
+            "nome": "Elixir de Exp do Dungeon",
+            "tipo": "elixir",
+            "slot": "consumivel",
+            "raridade": "raro",
+            "descricao": "Elixir que quadriplica ganho de experiencia por um dia.",
+            "bonus": {"ataque": 1, "defesa": 1, "hp": 3, "sorte": 3, "coleta": 0},
+        },
+        {
+            "nome": "Bebida Espiritual Demonaca",
+            "tipo": "bebida",
+            "slot": "consumivel",
+            "raridade": "raro",
+            "descricao": "Bebida escura que aumenta poder temporario mas com riscos.",
+            "bonus": {"ataque": 3, "defesa": 0, "hp": -2, "sorte": 1, "coleta": 0},
         },
     ]
 
@@ -484,8 +637,14 @@ def tecla_nome(tecla: int) -> str:
     return pygame.key.name(tecla).upper()
 
 
-def proxima_tecla_poder(teclas_usadas: set[int]) -> int | None:
-    for tecla in TECLAS_PODER_CANDIDATAS:
+def proxima_tecla_poder(teclas_usadas: set[int], inventario_baixo: bool = False) -> int | None:
+    """
+    Retorna a proxima tecla disponivel para um poder.
+    Se inventario_baixo=True (0-1 itens), usa apenas letras.
+    Caso contrario, usa numeros e F keys.
+    """
+    candidatas = TECLAS_PODER_LETRAS if inventario_baixo else TECLAS_PODER_CANDIDATAS
+    for tecla in candidatas:
         if tecla not in TECLAS_RESERVADAS and tecla not in teclas_usadas:
             return tecla
     return None
