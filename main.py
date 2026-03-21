@@ -1,14 +1,16 @@
 import json
+import os
 import random
+import re
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from collections import deque
 
 import pygame
 
 OBJETIVO_PATH = Path(__file__).with_name("objectives.json")
+SAVE_DIR = Path(__file__).with_name("saves")
 OLLAMA_URL = "http://localhost:11434/api/generate"
 NOME_MODELO = "llama3"
 
@@ -44,13 +46,60 @@ COR_MALDITO = (128, 0, 128)
 TAMANHO_CELULA = 40
 ALTURA_HUD = 100
 ALTURA_CHAT = 150
+LARGURA_TELA = 1280
+ALTURA_TELA = 880
+
+TECLAS_RESERVADAS = {
+    pygame.K_w,
+    pygame.K_a,
+    pygame.K_s,
+    pygame.K_d,
+    pygame.K_g,
+    pygame.K_e,
+    pygame.K_b,
+    pygame.K_SPACE,
+    pygame.K_c,
+    pygame.K_z,
+    pygame.K_r,
+    pygame.K_p,
+    pygame.K_F5,
+    pygame.K_ESCAPE,
+    pygame.K_RETURN,
+    pygame.K_UP,
+    pygame.K_DOWN,
+}
+
+TECLAS_PODER_CANDIDATAS = [
+    pygame.K_1,
+    pygame.K_2,
+    pygame.K_3,
+    pygame.K_4,
+    pygame.K_5,
+    pygame.K_6,
+    pygame.K_7,
+    pygame.K_8,
+    pygame.K_9,
+    pygame.K_0,
+    pygame.K_F1,
+    pygame.K_F2,
+    pygame.K_F3,
+    pygame.K_F4,
+    pygame.K_F6,
+    pygame.K_F7,
+    pygame.K_F8,
+    pygame.K_F9,
+    pygame.K_F10,
+    pygame.K_F11,
+    pygame.K_F12,
+]
 
 
 class MemoriaRaphael:
     """Sistema de memória persistente para Raphael."""
     def __init__(self):
-        self.historico_conversas = deque(maxlen=30)
-        self.eventos = deque(maxlen=100)
+        # Historico completo da run (sem truncar memória).
+        self.historico_conversas: list[dict] = []
+        self.eventos: list[dict] = []
         self.moralidade_raphael = 0  # 0=neutra, -100=corrupta, +100=pura
         self.intervencoes = 0
         self.avisos_jogador = 0
@@ -66,14 +115,62 @@ class MemoriaRaphael:
         contexto = "=== MEMÓRIA DA SESSÃO ===\n"
         if self.historico_conversas:
             contexto += "CONVERSAS RECENTES:\n"
-            for entrada in list(self.historico_conversas)[-10:]:
+            for entrada in self.historico_conversas[-20:]:
                 contexto += f"  {entrada['papel']}: {entrada['mensagem']}\n"
         if self.eventos:
             contexto += "\nEVENTOS RECENTES:\n"
-            for entrada in list(self.eventos)[-8:]:
+            for entrada in self.eventos[-30:]:
                 contexto += f"  • {entrada['evento']}\n"
         contexto += f"\nMORALIDADE DE RAPHAEL: {self.moralidade_raphael}\n"
         return contexto[:tamanho_maximo]
+
+
+class SistemaTempo:
+    """Relógio de jogo: 24 horas em 24 minutos reais, com controle divino."""
+    def __init__(self, segundos_por_dia: float = 24 * 60) -> None:
+        self.segundos_por_dia = float(segundos_por_dia)
+        self.segundos_totais = 0.0
+        self.congelado = False
+
+    def atualizar(self, delta_segundos: float) -> None:
+        if not self.congelado:
+            self.segundos_totais += max(0.0, delta_segundos)
+
+    @property
+    def dia(self) -> int:
+        return int(self.segundos_totais // self.segundos_por_dia) + 1
+
+    @property
+    def hora_decimal(self) -> float:
+        frac = (self.segundos_totais % self.segundos_por_dia) / self.segundos_por_dia
+        return frac * 24.0
+
+    @property
+    def horario_formatado(self) -> str:
+        horas = int(self.hora_decimal) % 24
+        minutos = int((self.hora_decimal - int(self.hora_decimal)) * 60) % 60
+        return f"{horas:02d}:{minutos:02d}"
+
+    @property
+    def fase(self) -> str:
+        h = self.hora_decimal
+        if 6 <= h < 12:
+            return "manhã"
+        if 12 <= h < 18:
+            return "tarde"
+        if 18 <= h < 22:
+            return "anoitecer"
+        return "noite"
+
+    def alternar_congelamento(self) -> str:
+        self.congelado = not self.congelado
+        return "tempo parado" if self.congelado else "tempo retomado"
+
+    def avancar(self, dias: int = 0, horas: int = 0, minutos: int = 0, anos: int = 0) -> None:
+        dias_total = max(0, dias) + max(0, anos) * 365
+        self.segundos_totais += dias_total * self.segundos_por_dia
+        self.segundos_totais += max(0, horas) * (self.segundos_por_dia / 24)
+        self.segundos_totais += max(0, minutos) * (self.segundos_por_dia / (24 * 60))
 
 
 class Mundo:
@@ -113,6 +210,7 @@ class Mundo:
             "tesouros_encontrados": 0,
             "santuarios_visitados": 0,
         }
+        self.poderes: dict[str, dict] = {}
         self.ultimo_evento = "mundo inicializado"
         self.moralidade_jogador = 0  # 0=neutra, -100=corrupta, +100=pura
 
@@ -172,15 +270,67 @@ class Mundo:
         self.ultimo_evento = f"moveu para {direcao}"
 
         if (nx, ny) in self.tiles_armadilha:
-            self.hp -= 2
-            self.ultimo_evento = "acionou uma armadilha!"
+            self.receber_dano(2, "acionou uma armadilha", tipo="ataque")
             self.tiles_armadilha.discard((nx, ny))
 
         if (nx, ny) in self.tiles_maldito:
-            self.hp -= 1
-            self.ultimo_evento = "entrou em zona maldita!"
+            self.receber_dano(1, "entrou em zona maldita", tipo="maldicao")
 
         return True
+
+    def receber_dano(self, valor: float, motivo: str, tipo: str = "geral") -> bool:
+        """Aplica dano considerando poderes automáticos. Retorna True se dano foi bloqueado."""
+        defesa = self.poderes.get("defesa_divina")
+        if defesa and defesa.get("cargas", 0) > 0 and tipo == "ataque":
+            defesa["cargas"] -= 1
+            self.ultimo_evento = f"defesa divina bloqueou dano ({motivo})"
+            if defesa["cargas"] <= 0:
+                del self.poderes["defesa_divina"]
+            return True
+
+        self.hp = max(0, self.hp - valor)
+        self.ultimo_evento = motivo
+        return False
+
+    def ativar_poder_manual(self, id_poder: str) -> bool:
+        """Ativa poder manual, se houver carga."""
+        poder = self.poderes.get(id_poder)
+        if not poder or poder.get("cargas", 0) <= 0:
+            self.ultimo_evento = "poder indisponível"
+            return False
+
+        tipo = poder.get("tipo")
+        if tipo == "cura_celestial":
+            cura = float(poder.get("valor", 6))
+            self.hp = min(self.hp_maximo, self.hp + cura)
+            self.ultimo_evento = "cura celestial ativada"
+        elif tipo == "passo_etereo":
+            for _ in range(12):
+                x, y = self.posicao_livre_aleatoria()
+                if (x, y) not in self.tiles_inimigo:
+                    self.humano = [x, y]
+                    break
+            self.ultimo_evento = "passo etéreo ativado"
+        elif tipo == "colheita_milagre":
+            self.inventario["comida"] += float(poder.get("valor", 3))
+            self.ultimo_evento = "colheita milagrosa recebida"
+        else:
+            self.ultimo_evento = "poder sem efeito"
+
+        poder["cargas"] -= 1
+        if poder["cargas"] <= 0:
+            del self.poderes[id_poder]
+        self.stats["pontos"] += 4
+        return True
+
+    def conceder_poder(self, id_poder: str, nome: str, tipo: str, tecla: int | None, cargas: int, valor: float = 0.0) -> None:
+        self.poderes[id_poder] = {
+            "nome": nome,
+            "tipo": tipo,
+            "tecla": tecla,
+            "cargas": max(1, int(cargas)),
+            "valor": valor,
+        }
 
     def coletar(self) -> bool:
         pos = tuple(self.humano)
@@ -317,16 +467,15 @@ class Raphael:
         self.memoria = memoria
         self.objetivos = objetivos
         self.pode_intervir = True
-        self.intervencoes_realizadas = 0
 
-    def manipular_mundo(self, mundo: Mundo, tipo_intervencao: str) -> str:
+    def manipular_mundo(self, mundo: Mundo, tipo_intervencao: str, tempo: SistemaTempo | None = None) -> str:
         """Raphael manipula o mundo de forma divina."""
         if tipo_intervencao == "ampliar_mundo":
             novo_tamanho = min(40, mundo.tamanho + 2)
             diferenca = novo_tamanho - mundo.tamanho
             if diferenca > 0:
                 mundo.tamanho = novo_tamanho
-                self.memoria.intervencoes_realizadas += 1
+                self.memoria.intervencoes += 1
                 return f"Raphael expandiu o mundo para {novo_tamanho}x{novo_tamanho}"
 
         elif tipo_intervencao == "comida_escassa":
@@ -334,7 +483,7 @@ class Raphael:
             comida_remover = list(mundo.tiles_comida)[:max(1, len(mundo.tiles_comida)//4)]
             for pos in comida_remover:
                 mundo.tiles_comida.discard(pos)
-            self.memoria.intervencoes_realizadas += 1
+            self.memoria.intervencoes += 1
             return "Raphael tornou a comida escassa"
 
         elif tipo_intervencao == "chuva_bencao":
@@ -344,7 +493,7 @@ class Raphael:
                 y = random.randint(0, mundo.tamanho - 1)
                 if (x, y) not in mundo.tiles_montanha and (x, y) not in mundo.tiles_agua:
                     mundo.tiles_comida.add((x, y))
-            self.memoria.intervencoes_realizadas += 1
+            self.memoria.intervencoes += 1
             return "Raphael abençoou o mundo com colheita abundante"
 
         elif tipo_intervencao == "armadilhas_aumentadas":
@@ -354,7 +503,7 @@ class Raphael:
                 y = random.randint(0, mundo.tamanho - 1)
                 if (x, y) not in mundo.tiles_montanha and (x, y) not in mundo.tiles_agua:
                     mundo.tiles_armadilha.add((x, y))
-            self.memoria.intervencoes_realizadas += 1
+            self.memoria.intervencoes += 1
             self.memoria.moralidade_raphael -= 20
             return "Raphael amaldiçoou o mundo com armadilhas"
 
@@ -368,9 +517,23 @@ class Raphael:
             self.memoria.moralidade_raphael -= 15
             return "Raphael o feriu com ira divina"
 
+        elif tipo_intervencao == "parar_ou_retomar_tempo" and tempo is not None:
+            self.memoria.intervencoes += 1
+            return f"Raphael {tempo.alternar_congelamento()}"
+
+        elif tipo_intervencao == "avancar_tempo" and tempo is not None:
+            self.memoria.intervencoes += 1
+            escolha = random.choice([(0, 6, 0, 0), (2, 0, 0, 0), (0, 0, 0, 1)])
+            tempo.avancar(dias=escolha[0], horas=escolha[1], minutos=escolha[2], anos=escolha[3])
+            if escolha[3] > 0:
+                return "Raphael avançou 1 ano no fluxo temporal"
+            if escolha[0] > 0:
+                return f"Raphael avançou {escolha[0]} dias"
+            return f"Raphael avançou {escolha[1]} horas"
+
         return "Raphael observa silenciosamente"
 
-    def observar_e_talvez_interferir(self, mundo: Mundo, acao_recente: str) -> tuple[str | None, str | None]:
+    def observar_e_talvez_interferir(self, mundo: Mundo, acao_recente: str, tempo: SistemaTempo | None = None) -> tuple[str | None, str | None]:
         """Raphael observa sempre e interfere apenas ocasionalmente."""
         self.memoria.adicionar_evento(f"Observacao divina: {acao_recente}")
 
@@ -384,11 +547,13 @@ class Raphael:
         # Interferencia rara e leve.
         if random.random() < 0.12:
             if mundo.moralidade_jogador < -35:
-                efeito = self.manipular_mundo(mundo, random.choice(["comida_escassa", "armadilhas_aumentadas"]))
+                efeito = self.manipular_mundo(mundo, random.choice(["comida_escassa", "armadilhas_aumentadas"]), tempo)
             elif mundo.hp < max(3, mundo.hp_maximo * 0.2):
-                efeito = self.manipular_mundo(mundo, "reviver")
+                efeito = self.manipular_mundo(mundo, "reviver", tempo)
+            elif tempo is not None and random.random() < 0.30:
+                efeito = self.manipular_mundo(mundo, random.choice(["parar_ou_retomar_tempo", "avancar_tempo"]), tempo)
             elif random.random() < 0.5:
-                efeito = self.manipular_mundo(mundo, "chuva_bencao")
+                efeito = self.manipular_mundo(mundo, "chuva_bencao", tempo)
 
         return fala, efeito
 
@@ -439,6 +604,57 @@ class Raphael:
         self.memoria.adicionar_conversa("Raphael", resposta)
         return resposta
 
+    def avaliar_pedido_poder(self, mundo: Mundo, pedido: str, teclas_usadas: set[int]) -> tuple[bool, str, dict | None]:
+        """Raphael decide se concede poder e qual poder conceder."""
+        contexto = self.memoria.obter_contexto()
+        estado = json.dumps(mundo.estado(0), indent=2)
+        prompt = (
+            "Você é RAPHAEL, o Arcanjo observador.\n"
+            "Decida se concede ou recusa um pedido de poder.\n"
+            "Responda APENAS JSON com: conceder(bool), motivo(str), tipo_poder(str), nome_poder(str), cargas(int), valor(float).\n"
+            "Tipos válidos: defesa_divina, cura_celestial, passo_etereo, colheita_milagre.\n\n"
+            f"{contexto}\n\n"
+            f"ESTADO: {estado}\n"
+            f"PEDIDO: {pedido}\n"
+        )
+        resposta = chamar_ollama(prompt, NOME_MODELO)
+        if not resposta:
+            # fallback: Raphael pode recusar por silencio
+            return False, "Hoje não concederei este dom.", None
+
+        try:
+            dado = json.loads(resposta)
+            conceder = bool(dado.get("conceder", False))
+            motivo = str(dado.get("motivo", "Sem julgamento."))
+            if not conceder:
+                return False, motivo, None
+
+            tipo = str(dado.get("tipo_poder", "defesa_divina"))
+            if tipo not in {"defesa_divina", "cura_celestial", "passo_etereo", "colheita_milagre"}:
+                tipo = "defesa_divina"
+
+            nome_poder = str(dado.get("nome_poder", "Dom Divino"))
+            cargas = max(1, int(dado.get("cargas", 1)))
+            valor = float(dado.get("valor", 0))
+
+            # defesa_divina é automática e não usa tecla.
+            tecla = None
+            if tipo != "defesa_divina":
+                tecla = proxima_tecla_poder(teclas_usadas)
+                if tecla is None:
+                    return False, "Não há teclas livres para novos dons.", None
+
+            return True, motivo, {
+                "id": tipo,
+                "nome": nome_poder,
+                "tipo": tipo,
+                "tecla": tecla,
+                "cargas": cargas,
+                "valor": valor,
+            }
+        except (ValueError, json.JSONDecodeError):
+            return False, "Não compreendi seu pedido neste momento.", None
+
 
 def carregar_objetivos(caminho: Path) -> dict:
     with caminho.open("r", encoding="utf-8") as arquivo:
@@ -466,6 +682,117 @@ def chamar_ollama(prompt: str, modelo: str) -> str | None:
             return envelope.get("response", "").strip()
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
+
+
+def tecla_nome(tecla: int) -> str:
+    return pygame.key.name(tecla).upper()
+
+
+def proxima_tecla_poder(teclas_usadas: set[int]) -> int | None:
+    for tecla in TECLAS_PODER_CANDIDATAS:
+        if tecla not in TECLAS_RESERVADAS and tecla not in teclas_usadas:
+            return tecla
+    return None
+
+
+def normalizar_nome_save(nome: str) -> str:
+    nome_limpo = re.sub(r"[^a-zA-Z0-9_\- ]", "", nome).strip()
+    return nome_limpo[:60] if nome_limpo else "save_sem_nome"
+
+
+def listar_saves() -> list[str]:
+    SAVE_DIR.mkdir(exist_ok=True)
+    return sorted([p.stem for p in SAVE_DIR.glob("*.json")], key=str.lower)
+
+
+def salvar_jogo(nome_save: str, mundo: Mundo, memoria: MemoriaRaphael, meta: dict) -> str:
+    SAVE_DIR.mkdir(exist_ok=True)
+    nome = normalizar_nome_save(nome_save)
+    caminho = SAVE_DIR / f"{nome}.json"
+
+    dados = {
+        "meta": meta,
+        "mundo": {
+            "tamanho": mundo.tamanho,
+            "humano": mundo.humano,
+            "nome_humano": mundo.nome_humano,
+            "origem_humano": mundo.origem_humano,
+            "hp": mundo.hp,
+            "hp_maximo": mundo.hp_maximo,
+            "inventario": mundo.inventario,
+            "stats": mundo.stats,
+            "moralidade_jogador": mundo.moralidade_jogador,
+            "poderes": mundo.poderes,
+            "tiles": {
+                "comida": list(mundo.tiles_comida),
+                "arvore": list(mundo.tiles_arvore),
+                "casa": list(mundo.tiles_casa),
+                "inimigo": list(mundo.tiles_inimigo),
+                "animal": list(mundo.tiles_animal),
+                "montanha": list(mundo.tiles_montanha),
+                "agua": list(mundo.tiles_agua),
+                "santuario": list(mundo.tiles_santuario),
+                "armadilha": list(mundo.tiles_armadilha),
+                "maldito": list(mundo.tiles_maldito),
+                "tesouro": [{"x": x, "y": y, "ouro": ouro} for (x, y), ouro in mundo.tiles_tesouro.items()],
+            },
+        },
+        "memoria": {
+            "conversas": list(memoria.historico_conversas),
+            "eventos": list(memoria.eventos),
+            "moralidade_raphael": memoria.moralidade_raphael,
+            "intervencoes": memoria.intervencoes,
+            "avisos_jogador": memoria.avisos_jogador,
+        },
+    }
+    caminho.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    return nome
+
+
+def carregar_save(nome_save: str) -> tuple[Mundo, MemoriaRaphael, dict]:
+    caminho = SAVE_DIR / f"{normalizar_nome_save(nome_save)}.json"
+    dados = json.loads(caminho.read_text(encoding="utf-8"))
+
+    m = dados["mundo"]
+    mundo = Mundo(int(m["tamanho"]), {
+        "nome_humano": m["nome_humano"],
+        "origem_humano": m["origem_humano"],
+        "hp_inicial": m["hp_maximo"],
+        "comida_inicial": m["inventario"]["comida"],
+        "madeira_inicial": m["inventario"]["madeira"],
+        "ouro_inicial": m["inventario"].get("ouro", 0),
+    })
+
+    mundo.humano = list(m["humano"])
+    mundo.hp = float(m["hp"])
+    mundo.hp_maximo = float(m["hp_maximo"])
+    mundo.inventario = dict(m["inventario"])
+    mundo.stats = dict(m["stats"])
+    mundo.moralidade_jogador = int(m.get("moralidade_jogador", 0))
+    mundo.poderes = dict(m.get("poderes", {}))
+
+    tiles = m["tiles"]
+    mundo.tiles_comida = set(tuple(x) for x in tiles["comida"])
+    mundo.tiles_arvore = set(tuple(x) for x in tiles["arvore"])
+    mundo.tiles_casa = set(tuple(x) for x in tiles["casa"])
+    mundo.tiles_inimigo = set(tuple(x) for x in tiles["inimigo"])
+    mundo.tiles_animal = set(tuple(x) for x in tiles["animal"])
+    mundo.tiles_montanha = set(tuple(x) for x in tiles["montanha"])
+    mundo.tiles_agua = set(tuple(x) for x in tiles["agua"])
+    mundo.tiles_santuario = set(tuple(x) for x in tiles["santuario"])
+    mundo.tiles_armadilha = set(tuple(x) for x in tiles["armadilha"])
+    mundo.tiles_maldito = set(tuple(x) for x in tiles["maldito"])
+    mundo.tiles_tesouro = {(int(t["x"]), int(t["y"])): int(t["ouro"]) for t in tiles["tesouro"]}
+
+    memoria = MemoriaRaphael()
+    mem = dados.get("memoria", {})
+    memoria.historico_conversas = list(mem.get("conversas", []))
+    memoria.eventos = list(mem.get("eventos", []))
+    memoria.moralidade_raphael = int(mem.get("moralidade_raphael", 0))
+    memoria.intervencoes = int(mem.get("intervencoes", 0))
+    memoria.avisos_jogador = int(mem.get("avisos_jogador", 0))
+
+    return mundo, memoria, dados.get("meta", {})
 
 
 def criar_mundo_com_raphael(objetivos: dict) -> tuple[Mundo, int, MemoriaRaphael, Raphael]:
@@ -546,13 +873,31 @@ def desenhar_emoji(superficie: pygame.Surface, fonte: pygame.font.Font, texto: s
     superficie.blit(glifo, rect_glifo)
 
 
-def renderizar_mundo(tela: pygame.Surface, mundo: Mundo, fonte_hud: pygame.font.Font, fonte_emoji: pygame.font.Font, modo: str) -> None:
+def renderizar_mundo(
+    tela: pygame.Surface,
+    mundo: Mundo,
+    fonte_hud: pygame.font.Font,
+    fonte_emoji: pygame.font.Font,
+    modo: str,
+    tempo: SistemaTempo,
+) -> None:
     """Renderizar o mundo do jogo."""
     tela.fill(COR_BG)
 
-    for y in range(mundo.tamanho):
-        for x in range(mundo.tamanho):
-            rect = pygame.Rect(x * TAMANHO_CELULA, y * TAMANHO_CELULA, TAMANHO_CELULA - 1, TAMANHO_CELULA - 1)
+    # Renderização por região (viewport): estilo jogos 2D de exploração.
+    celulas_largura = max(10, LARGURA_TELA // TAMANHO_CELULA)
+    celulas_altura = max(8, (ALTURA_TELA - ALTURA_HUD - ALTURA_CHAT) // TAMANHO_CELULA)
+    metade_l = celulas_largura // 2
+    metade_a = celulas_altura // 2
+
+    camera_x = max(0, min(mundo.tamanho - celulas_largura, mundo.humano[0] - metade_l))
+    camera_y = max(0, min(mundo.tamanho - celulas_altura, mundo.humano[1] - metade_a))
+
+    for y in range(camera_y, min(mundo.tamanho, camera_y + celulas_altura)):
+        for x in range(camera_x, min(mundo.tamanho, camera_x + celulas_largura)):
+            tela_x = (x - camera_x) * TAMANHO_CELULA
+            tela_y = (y - camera_y) * TAMANHO_CELULA
+            rect = pygame.Rect(tela_x, tela_y, TAMANHO_CELULA - 1, TAMANHO_CELULA - 1)
             xadrez = (x + y) % 2
             base = COR_GRID_ESC if xadrez == 0 else COR_GRID_CLARO
             pygame.draw.rect(tela, base, rect)
@@ -605,19 +950,26 @@ def renderizar_mundo(tela: pygame.Surface, mundo: Mundo, fonte_hud: pygame.font.
                 desenhar_emoji(tela, fonte_emoji, "💎", rect.center)
 
     hx, hy = mundo.humano
-    rect_humano = pygame.Rect(hx * TAMANHO_CELULA, hy * TAMANHO_CELULA, TAMANHO_CELULA - 1, TAMANHO_CELULA - 1)
+    rect_humano = pygame.Rect((hx - camera_x) * TAMANHO_CELULA, (hy - camera_y) * TAMANHO_CELULA, TAMANHO_CELULA - 1, TAMANHO_CELULA - 1)
     avatar = rect_humano.inflate(-6, -6)
     desenhar_tile(tela, avatar, COR_HUMANO)
     desenhar_emoji(tela, fonte_emoji, "🧑", rect_humano.center)
 
+    # Overlay de dia/noite.
+    if tempo.fase in {"noite", "anoitecer"}:
+        overlay = pygame.Surface((LARGURA_TELA, ALTURA_TELA - ALTURA_HUD - ALTURA_CHAT), pygame.SRCALPHA)
+        alpha = 110 if tempo.fase == "noite" else 60
+        overlay.fill((10, 16, 40, alpha))
+        tela.blit(overlay, (0, 0))
+
     # HUD
-    hud_y = mundo.tamanho * TAMANHO_CELULA
-    rect_hud = pygame.Rect(0, hud_y, mundo.tamanho * TAMANHO_CELULA, ALTURA_HUD)
+    hud_y = ALTURA_TELA - ALTURA_HUD - ALTURA_CHAT
+    rect_hud = pygame.Rect(0, hud_y, LARGURA_TELA, ALTURA_HUD)
     pygame.draw.rect(tela, COR_HUD, rect_hud)
 
     linha1 = f"{mundo.nome_humano} | HP {int(mundo.hp)}/{int(mundo.hp_maximo)} | Comida {int(mundo.inventario['comida'])} Madeira {int(mundo.inventario['madeira'])}"
-    linha2 = f"Pontos {mundo.stats['pontos']} | Moralidade Raphael: {+100 if mundo.moralidade_jogador < -50 else -50 if mundo.moralidade_jogador > 50 else 0} | Modo: {modo}"
-    linha3 = f"Evento: {mundo.ultimo_evento}"
+    linha2 = f"Pontos {mundo.stats['pontos']} | Dia {tempo.dia} {tempo.horario_formatado} ({tempo.fase}) | Modo: {modo}"
+    linha3 = f"Evento: {mundo.ultimo_evento} | Intervenções de Raphael: {mundo.stats.get('intervencoes_raphael', 0)}"
 
     for idx, linha in enumerate([linha1, linha2, linha3]):
         txt = fonte_hud.render(linha, True, COR_TEXTO)
@@ -626,10 +978,10 @@ def renderizar_mundo(tela: pygame.Surface, mundo: Mundo, fonte_hud: pygame.font.
 
 def renderizar_chat(tela: pygame.Surface, historico_chat: list[str], fonte_hud: pygame.font.Font, tamanho_grid: int) -> None:
     """Renderizar a interface de chat."""
-    chat_y = tamanho_grid * TAMANHO_CELULA + ALTURA_HUD
-    rect_chat = pygame.Rect(0, chat_y, tamanho_grid * TAMANHO_CELULA, ALTURA_CHAT)
+    chat_y = ALTURA_TELA - ALTURA_CHAT
+    rect_chat = pygame.Rect(0, chat_y, LARGURA_TELA, ALTURA_CHAT)
     pygame.draw.rect(tela, COR_CHAT_BG, rect_chat)
-    pygame.draw.line(tela, COR_CONTORNO, (0, chat_y), (tamanho_grid * TAMANHO_CELULA, chat_y), 2)
+    pygame.draw.line(tela, COR_CONTORNO, (0, chat_y), (LARGURA_TELA, chat_y), 2)
 
     txt_titulo = fonte_hud.render("PALAVRAS DE RAPHAEL (Pressione R para falar):", True, COR_AVISO)
     tela.blit(txt_titulo, (8, chat_y + 5))
@@ -640,21 +992,96 @@ def renderizar_chat(tela: pygame.Surface, historico_chat: list[str], fonte_hud: 
             tela.blit(txt, (8, chat_y + 30 + idx * 35))
 
 
+def menu_inicial() -> tuple[str, str | None]:
+    """Menu inicial simples para novo jogo/carregar/sair."""
+    pygame.init()
+    tela = pygame.display.set_mode((700, 420))
+    pygame.display.set_caption("O Reino de Raphael - Menu")
+    fonte = pygame.font.SysFont("consolas", 28)
+    fonte2 = pygame.font.SysFont("consolas", 20)
+    relogio = pygame.time.Clock()
+
+    opcoes = ["Novo Jogo", "Carregar Save", "Sair"]
+    idx = 0
+    rodando = True
+
+    while rodando:
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                return "sair", None
+            if evento.type == pygame.KEYDOWN:
+                if evento.key in {pygame.K_UP, pygame.K_w}:
+                    idx = (idx - 1) % len(opcoes)
+                elif evento.key in {pygame.K_DOWN, pygame.K_s}:
+                    idx = (idx + 1) % len(opcoes)
+                elif evento.key == pygame.K_RETURN:
+                    escolha = opcoes[idx]
+                    if escolha == "Novo Jogo":
+                        nome = input("Nome do save novo: ").strip()
+                        return "novo", (nome or f"save_{int(time.time())}")
+                    if escolha == "Carregar Save":
+                        saves = listar_saves()
+                        if not saves:
+                            print("Nenhum save encontrado.")
+                            continue
+                        print("Saves disponíveis:")
+                        for i, s in enumerate(saves, 1):
+                            print(f"{i}. {s}")
+                        entrada = input("Digite nome do save (ou número): ").strip()
+                        if entrada.isdigit() and 1 <= int(entrada) <= len(saves):
+                            return "carregar", saves[int(entrada) - 1]
+                        return "carregar", entrada
+                    return "sair", None
+
+        tela.fill((17, 20, 24))
+        titulo = fonte.render("O REINO DE RAPHAEL", True, (230, 220, 200))
+        tela.blit(titulo, (170, 40))
+        dica = fonte2.render("Setas/W-S para navegar, ENTER para confirmar", True, (180, 180, 180))
+        tela.blit(dica, (120, 90))
+
+        for i, opcao in enumerate(opcoes):
+            cor = (255, 210, 120) if i == idx else (220, 220, 220)
+            txt = fonte.render(opcao, True, cor)
+            tela.blit(txt, (240, 170 + i * 60))
+
+        pygame.display.flip()
+        relogio.tick(60)
+
+    return "sair", None
+
+
 def rodar() -> None:
     print("\n=== O REINO DE RAPHAEL ===\n")
 
     objetivos = carregar_objetivos(OBJETIVO_PATH)
-    print("[Raphael está acordando...]")
-    mundo, tamanho_real, memoria, raphael = criar_mundo_com_raphael(objetivos)
+    acao_menu, save_atual = menu_inicial()
+    if acao_menu == "sair":
+        pygame.quit()
+        return
+
+    if acao_menu == "carregar" and save_atual:
+        try:
+            mundo, memoria, meta = carregar_save(save_atual)
+            raphael = Raphael(memoria, objetivos)
+            tamanho_real = mundo.tamanho
+            print(f"[Save carregado: {save_atual}]")
+        except Exception as exc:
+            print(f"Falha ao carregar save ({exc}). Iniciando novo jogo.")
+            print("[Raphael está acordando...]")
+            mundo, tamanho_real, memoria, raphael = criar_mundo_com_raphael(objetivos)
+            save_atual = save_atual or f"save_{int(time.time())}"
+    else:
+        print("[Raphael está acordando...]")
+        mundo, tamanho_real, memoria, raphael = criar_mundo_com_raphael(objetivos)
+        save_atual = save_atual or f"save_{int(time.time())}"
+
     print(f"[Raphael falou.]")
     print(f"[Mundo: {tamanho_real}x{tamanho_real} | Seu nome: {mundo.nome_humano}]")
     print(f"[Lore: {mundo.origem_humano}]\n")
 
     pygame.init()
     pygame.display.set_caption("O Reino de Raphael - Controlado pelo Jogador")
-    largura_janela = tamanho_real * TAMANHO_CELULA
-    altura_janela = tamanho_real * TAMANHO_CELULA + ALTURA_HUD + ALTURA_CHAT
-    tela = pygame.display.set_mode((largura_janela, altura_janela))
+    tela = pygame.display.set_mode((LARGURA_TELA, ALTURA_TELA))
     fonte_hud = pygame.font.SysFont("consolas", 16)
     fonte_emoji = pygame.font.SysFont("segoe ui emoji", 20)
 
@@ -663,16 +1090,32 @@ def rodar() -> None:
     tick = 0
     ultimo_tempo_acao = 0.0
     atraso_acao = 0.2
+    inicio_partida = time.time()
+    ultimo_upkeep = inicio_partida
+    tempo_sistema = SistemaTempo(segundos_por_dia=24 * 60)
+    ultimo_frame_tempo = time.time()
     historico_chat: list[str] = ["Raphael: Bem-vindo, mortal."]
     contador_intervencao = 0
     intervalo_observacao = 6  # Raphael observa ciclos curtos, mas interfere pouco.
+    teclas_poder_ativas: dict[int, str] = {}
 
     economia_cfg = (
         objetivos.get("mundo", {}).get("economia")
         or objetivos.get("world", {}).get("economy", {})
     )
-    consumo_comida_tick = float(economia_cfg.get("consumo_comida_tick", economia_cfg.get("food_upkeep_per_tick", 0.15)))
-    dano_fome_tick = float(economia_cfg.get("dano_fome_tick", economia_cfg.get("starvation_damage_per_tick", 2)))
+    consumo_comida_segundo = float(
+        economia_cfg.get(
+            "consumo_comida_segundo",
+            economia_cfg.get("food_upkeep_per_second", economia_cfg.get("consumo_comida_tick", economia_cfg.get("food_upkeep_per_tick", 0.15))),
+        )
+    )
+    dano_fome_segundo = float(
+        economia_cfg.get(
+            "dano_fome_segundo",
+            economia_cfg.get("starvation_damage_per_second", economia_cfg.get("dano_fome_tick", economia_cfg.get("starvation_damage_per_tick", 2))),
+        )
+    )
+    tempo_graca_fome_segundos = float(economia_cfg.get("tempo_graca_fome_segundos", 180))
 
     while rodando and mundo.hp > 0:
         for evento in pygame.event.get():
@@ -742,36 +1185,90 @@ def rodar() -> None:
                         historico_chat.append(f"Raphael: {resposta[:60]}")
                         print(f"Raphael: {resposta}\n")
                         memoria.avisos_jogador += 1
+                elif evento.key == pygame.K_p:
+                    pedido = input("Qual poder você pede ao Raphael? ").strip()
+                    if pedido:
+                        concedeu, motivo, dados_poder = raphael.avaliar_pedido_poder(mundo, pedido, set(teclas_poder_ativas.keys()))
+                        if concedeu and dados_poder:
+                            mundo.conceder_poder(
+                                dados_poder["id"],
+                                dados_poder["nome"],
+                                dados_poder["tipo"],
+                                dados_poder["tecla"],
+                                dados_poder["cargas"],
+                                dados_poder["valor"],
+                            )
+                            if dados_poder["tecla"] is not None:
+                                teclas_poder_ativas[dados_poder["tecla"]] = dados_poder["id"]
+                                msg = f"Raphael concedeu {dados_poder['nome']} ({tecla_nome(dados_poder['tecla'])})"
+                            else:
+                                msg = f"Raphael concedeu {dados_poder['nome']} (automático)"
+                        else:
+                            msg = f"Raphael recusou: {motivo}"
+                        historico_chat.append(f"Raphael: {msg[:60]}")
+                        print(msg)
+                elif evento.key == pygame.K_F5:
+                    nome_final = salvar_jogo(
+                        save_atual,
+                        mundo,
+                        memoria,
+                        {"tick": tick, "timestamp": time.time(), "versao": 1},
+                    )
+                    save_atual = nome_final
+                    historico_chat.append(f"Sistema: save '{nome_final}' gravado")
+
+                # Teclas de poderes dinâmicos concedidos por Raphael.
+                if evento.key in teclas_poder_ativas:
+                    id_poder = teclas_poder_ativas[evento.key]
+                    if not mundo.ativar_poder_manual(id_poder):
+                        teclas_poder_ativas.pop(evento.key, None)
+                    if id_poder not in mundo.poderes:
+                        teclas_poder_ativas.pop(evento.key, None)
 
                 # Raphael observa toda acao relevante do jogador.
-                if evento.key in {pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d, pygame.K_g, pygame.K_e, pygame.K_b, pygame.K_SPACE, pygame.K_c, pygame.K_z}:
+                if evento.key in {pygame.K_w, pygame.K_s, pygame.K_a, pygame.K_d, pygame.K_g, pygame.K_e, pygame.K_b, pygame.K_SPACE, pygame.K_c, pygame.K_z, pygame.K_p}:
                     memoria.adicionar_evento(f"Acao do jogador: {mundo.ultimo_evento}")
 
                 # Raphael observa continuamente e interfere so quando decidir.
                 if contador_intervencao >= intervalo_observacao:
-                    fala, efeito = raphael.observar_e_talvez_interferir(mundo, mundo.ultimo_evento)
+                    fala, efeito = raphael.observar_e_talvez_interferir(mundo, mundo.ultimo_evento, tempo_sistema)
                     if fala:
                         historico_chat.append(f"Raphael: {fala[:60]}")
                         print(f"[Raphael, curioso: {fala}]")
                     if efeito:
+                        mundo.stats["intervencoes_raphael"] = mundo.stats.get("intervencoes_raphael", 0) + 1
                         historico_chat.append(f"Raphael: {efeito[:60]}")
                         print(f"[Interferencia divina: {efeito}]")
                     contador_intervencao = 0
 
-        # Manutenção de fome
-        mundo.inventario["comida"] -= consumo_comida_tick
-        if mundo.inventario["comida"] <= 0:
-            mundo.hp -= dano_fome_tick
-            mundo.ultimo_evento = "passando fome"
-            
-            # Raphael pode intervir
-            if mundo.hp < 3 and memoria.moralidade_raphael > 0 and random.random() < 0.4:
-                raphael.manipular_mundo(mundo, "reviver")
-                historico_chat.append(f"Raphael: Eu o revivi.")
+        # Tempo global do mundo (24 horas em 24 minutos reais).
+        agora_frame = time.time()
+        delta_tempo = agora_frame - ultimo_frame_tempo
+        if delta_tempo > 0:
+            tempo_sistema.atualizar(delta_tempo)
+            ultimo_frame_tempo = agora_frame
+
+        # Manutenção em tempo real (segundos), com 3 minutos iniciais sem fome.
+        agora_loop = time.time()
+        segundos_decorridos = int(agora_loop - ultimo_upkeep)
+        if segundos_decorridos > 0:
+            for _ in range(segundos_decorridos):
+                tempo_partida = agora_loop - inicio_partida
+                if tempo_partida >= tempo_graca_fome_segundos:
+                    mundo.inventario["comida"] -= consumo_comida_segundo
+                    if mundo.inventario["comida"] <= 0:
+                        mundo.hp -= dano_fome_segundo
+                        mundo.ultimo_evento = "passando fome"
+
+                        # Raphael pode intervir
+                        if mundo.hp < 3 and memoria.moralidade_raphael > 0 and random.random() < 0.4:
+                            raphael.manipular_mundo(mundo, "reviver")
+                            historico_chat.append("Raphael: Eu o revivi.")
+            ultimo_upkeep = agora_loop
 
         tick += 1
         modo_str = "JOGADOR"
-        renderizar_mundo(tela, mundo, fonte_hud, fonte_emoji, modo_str)
+        renderizar_mundo(tela, mundo, fonte_hud, fonte_emoji, modo_str, tempo_sistema)
         renderizar_chat(tela, historico_chat, fonte_hud, tamanho_real)
         pygame.display.flip()
         relogio.tick(60)

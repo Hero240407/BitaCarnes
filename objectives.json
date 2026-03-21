@@ -71,6 +71,9 @@
     "economy": {
       "food_upkeep_per_tick": 0.15,
       "starvation_damage_per_tick": 2,
+      "food_upkeep_per_second": 0.15,
+      "starvation_damage_per_second": 2,
+      "tempo_graca_fome_segundos": 180,
       "house_wood_cost": 4,
       "house_food_cost": 2
     }
