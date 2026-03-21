@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
 def carregar_configuracoes() -> dict:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not CONFIG_PATH.exists():
+        print(f"[Config] Arquivo de configuracao nao encontrado, criando padrao em {CONFIG_PATH}")
         salvar_configuracoes(dict(DEFAULT_CONFIG))
         return dict(DEFAULT_CONFIG)
     try:
@@ -54,8 +55,10 @@ def carregar_configuracoes() -> dict:
         cfg["vibracao_tela"] = bool(cfg.get("vibracao_tela", True))
         cfg["dicas_contextuais"] = bool(cfg.get("dicas_contextuais", True))
         cfg["volume_master"] = max(0, min(100, int(cfg.get("volume_master", 80))))
+        print(f"[Config] Configuracoes carregadas de {CONFIG_PATH}")
         return cfg
     except (ValueError, TypeError):
+        print(f"[Config] Erro ao ler configuracoes, restaurando padrao em {CONFIG_PATH}")
         salvar_configuracoes(dict(DEFAULT_CONFIG))
         return dict(DEFAULT_CONFIG)
 

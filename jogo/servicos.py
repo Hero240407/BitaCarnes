@@ -608,11 +608,15 @@ def salvar_jogo(nome_save: str, mundo: Mundo, memoria: MemoriaRaphael, meta: dic
 
 
 def carregar_save(nome_save: str) -> tuple[Mundo, MemoriaRaphael, dict]:
+
     nome_norm = normalizar_nome_save(nome_save)
     pasta = SAVE_DIR / nome_norm
     arquivo_legado = SAVE_DIR / f"{nome_norm}.json"
 
+    print(f"[carregar_save] Procurando save: {nome_save} (normalizado: {nome_norm})")
+
     if pasta.exists() and pasta.is_dir() and (pasta / "mundo.json").exists():
+        print(f"[carregar_save] Save moderno encontrado em {pasta}")
         meta = json.loads((pasta / "meta.json").read_text(encoding="utf-8")) if (pasta / "meta.json").exists() else {}
         m = json.loads((pasta / "mundo.json").read_text(encoding="utf-8"))
         tiles = json.loads((pasta / "tiles.json").read_text(encoding="utf-8"))
@@ -620,6 +624,7 @@ def carregar_save(nome_save: str) -> tuple[Mundo, MemoriaRaphael, dict]:
         lore_quests = json.loads((pasta / "lore_quests.json").read_text(encoding="utf-8")) if (pasta / "lore_quests.json").exists() else {}
         mem = json.loads((pasta / "memoria_raphael.json").read_text(encoding="utf-8")) if (pasta / "memoria_raphael.json").exists() else {}
     elif arquivo_legado.exists():
+        print(f"[carregar_save] Save legado encontrado em {arquivo_legado}")
         dados = json.loads(arquivo_legado.read_text(encoding="utf-8"))
         meta = dados.get("meta", {})
         m = dados["mundo"]
@@ -628,6 +633,7 @@ def carregar_save(nome_save: str) -> tuple[Mundo, MemoriaRaphael, dict]:
         lore_quests = {}
         mem = dados.get("memoria", {})
     else:
+        print(f"[carregar_save] Save nao encontrado: {nome_save}")
         raise FileNotFoundError(f"Save nao encontrado: {nome_save}")
 
     mundo = Mundo(int(m["tamanho"]), {
@@ -639,6 +645,13 @@ def carregar_save(nome_save: str) -> tuple[Mundo, MemoriaRaphael, dict]:
         "madeira_inicial": m["inventario"]["madeira"],
         "ouro_inicial": m["inventario"].get("ouro", 0),
     })
+    print(f"[carregar_save] Mundo carregado: {mundo.tamanho}x{mundo.tamanho}")
+    print(f"[carregar_save] Personagem: {mundo.nome_humano} | Idade: {mundo.idade_humano}")
+    print(f"[carregar_save] Origem: {mundo.origem_humano}")
+    if hasattr(mundo, 'perfil_jogador') and mundo.perfil_jogador:
+        print(f"[carregar_save] Perfil do personagem: {json.dumps(mundo.perfil_jogador, ensure_ascii=False, indent=2)}")
+    if hasattr(mundo, 'world_lore') and mundo.world_lore:
+        print(f"[carregar_save] World Lore: {json.dumps(mundo.world_lore, ensure_ascii=False, indent=2)}")
 
     mundo.humano = list(m["humano"])
     mundo.idade_humano = int(m.get("idade_humano", mundo.idade_humano))
@@ -730,9 +743,12 @@ def criar_mundo_com_raphael(objetivos: dict, perfil_jogador: dict | None = None)
         '{"tamanho_grid": inteiro, "nome_humano": string, "origem": string, "hp": inteiro, "comida": inteiro, "madeira": inteiro, "spawn": {"x": inteiro, "y": inteiro, "tema": string}}'
     )
 
+    print("[criar_mundo_com_raphael] Gerando mundo com prompt:")
+    print(prompt)
     resposta = chamar_ollama_pesado(prompt, timeout=30, temperature=0.6)
     nome_base = (perfil_jogador or {}).get("nome", "Escolhido")
     if not resposta:
+        print("[criar_mundo_com_raphael] Nenhuma resposta do modelo, usando fallback padrao.")
         config_mundo = {
             "tamanho_grid": 20,
             "nome_humano": nome_base,
@@ -747,6 +763,7 @@ def criar_mundo_com_raphael(objetivos: dict, perfil_jogador: dict | None = None)
     else:
         try:
             analisado = json.loads(resposta)
+            print(f"[criar_mundo_com_raphael] Resposta do modelo: {json.dumps(analisado, ensure_ascii=False, indent=2)}")
             tamanho_grid = min(40, max(16, int(analisado.get("tamanho_grid", 20))))
             spawn = analisado.get("spawn") if isinstance(analisado.get("spawn"), dict) else {}
             sx = int(spawn.get("x", tamanho_grid // 2))
@@ -766,7 +783,8 @@ def criar_mundo_com_raphael(objetivos: dict, perfil_jogador: dict | None = None)
                 },
                 "perfil_jogador": perfil_jogador,
             }
-        except Exception:
+        except Exception as e:
+            print(f"[criar_mundo_com_raphael] Erro ao analisar resposta do modelo: {e}")
             config_mundo = {
                 "tamanho_grid": 20,
                 "nome_humano": nome_base,
@@ -780,6 +798,7 @@ def criar_mundo_com_raphael(objetivos: dict, perfil_jogador: dict | None = None)
             }
 
     if perfil_jogador and not perfil_tem_lore_enriquecida(perfil_jogador):
+        print("[criar_mundo_com_raphael] Enriquecendo lore do personagem...")
         lore_extra = enriquecer_lore_personagem_base(perfil_jogador)
         perfil_jogador = aplicar_lore_personagem(perfil_jogador, lore_extra)
         config_mundo["origem_humano"] = perfil_jogador.get("origem", config_mundo["origem_humano"])
@@ -788,6 +807,12 @@ def criar_mundo_com_raphael(objetivos: dict, perfil_jogador: dict | None = None)
         config_mundo["origem_humano"] = perfil_jogador.get("origem", config_mundo["origem_humano"])
 
     config_mundo["itens_iniciais"] = gerar_itens_iniciais_raphael(config_mundo["nome_humano"], quantidade=8)
+
+    print(f"[criar_mundo_com_raphael] Mundo: {config_mundo['tamanho_grid']}x{config_mundo['tamanho_grid']}")
+    print(f"[criar_mundo_com_raphael] Personagem: {config_mundo['nome_humano']}")
+    print(f"[criar_mundo_com_raphael] Origem: {config_mundo['origem_humano']}")
+    if perfil_jogador:
+        print(f"[criar_mundo_com_raphael] Perfil do personagem: {json.dumps(perfil_jogador, ensure_ascii=False, indent=2)}")
 
     mundo = Mundo(config_mundo["tamanho_grid"], config_mundo)
     raphael = Raphael(memoria, objetivos)

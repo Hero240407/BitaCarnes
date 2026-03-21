@@ -127,27 +127,43 @@ def rodar() -> None:
     fonte_emoji = pygame.font.SysFont("segoe ui emoji", 20)
     relogio = pygame.time.Clock()
 
+
     if acao_menu == "carregar" and save_atual:
+        print(f"[Sistema] Tentando carregar save: {save_atual}")
         try:
             mundo, memoria, _ = carregar_save(save_atual)
             raphael = Raphael(memoria, objetivos)
             tamanho_real = mundo.tamanho
-            print(f"[Save carregado: {save_atual}]")
+            print(f"[Save carregado com sucesso: {save_atual}]")
+            print(f"[Mundo] Tamanho: {tamanho_real}x{tamanho_real}")
+            print(f"[Personagem] Nome: {mundo.nome_humano} | Idade: {mundo.idade_humano}")
+            print(f"[Lore] Origem: {mundo.origem_humano}")
+            print(f"[Quests Ativas] {len(getattr(mundo, 'quests_ativas', []))}")
         except Exception as exc:
-            print(f"Falha ao carregar save ({exc}). Iniciando novo jogo.")
-            print("[Raphael esta acordando...]")
+            print(f"[Erro] Falha ao carregar save ({exc}). Iniciando novo jogo.")
+            print("[Raphael] Ritual de criacao iniciado...")
             mundo, tamanho_real, memoria, raphael = criar_mundo_com_raphael(objetivos, perfil_jogador)
             save_atual = save_atual or f"save_{int(time.time())}"
+            print(f"[Novo Mundo] Tamanho: {tamanho_real}x{tamanho_real}")
+            print(f"[Personagem] Nome: {mundo.nome_humano} | Idade: {mundo.idade_humano}")
+            print(f"[Lore] Origem: {mundo.origem_humano}")
+            print(f"[Quests Ativas] {len(getattr(mundo, 'quests_ativas', []))}")
     else:
-        print("[Raphael esta acordando...]")
+        print("[Raphael] Ritual de criacao iniciado...")
         with ThreadPoolExecutor(max_workers=1) as criador:
             futuro_mundo = criador.submit(criar_mundo_com_raphael, objetivos, perfil_jogador)
             mundo, tamanho_real, memoria, raphael = _tela_geracao_mundo(tela, relogio, futuro_mundo)
         save_atual = save_atual or f"save_{int(time.time())}"
+        print(f"[Novo Mundo] Tamanho: {tamanho_real}x{tamanho_real}")
+        print(f"[Personagem] Nome: {mundo.nome_humano} | Idade: {mundo.idade_humano}")
+        print(f"[Lore] Origem: {mundo.origem_humano}")
+        print(f"[Quests Ativas] {len(getattr(mundo, 'quests_ativas', []))}")
+        if hasattr(mundo, 'perfil_jogador') and mundo.perfil_jogador:
+            print(f"[Detalhes do Personagem] {json.dumps(mundo.perfil_jogador, ensure_ascii=False, indent=2)}")
+        if hasattr(mundo, 'world_lore') and mundo.world_lore:
+            print(f"[World Lore] {json.dumps(mundo.world_lore, ensure_ascii=False, indent=2)}")
 
-    print(f"[Raphael falou.]")
-    print(f"[Mundo: {tamanho_real}x{tamanho_real} | Seu nome: {mundo.nome_humano} | Idade: {mundo.idade_humano}]")
-    print(f"[Lore: {mundo.origem_humano}]\n")
+    print(f"[Raphael] Mundo pronto para jogar!")
 
     rodando = True
     tick = 0
