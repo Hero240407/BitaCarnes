@@ -32,6 +32,12 @@ from .weather import SistemaClima
 from .ui_enhanced import renderizar_hud_expandida
 from .action_logger import ActionLogger
 
+# Novos sistemas: UI, Diálogo e Mundo
+from .ui_enhancements import MenuAnimado, BarraProgresso, TooltipSistema, PainelInventarioVisual, IndicadorSocial
+from .npc_dialogue_ai import SistemaConversas
+from .location_ambiance import GerenciadorAmbiance, SistemaTempoAmbiane, TipoBioma
+from .world_interactions import GerenciadorObjetos, SistemaPovoado, SistemaProgresso
+
 
 def _tela_geracao_mundo(tela: pygame.Surface, relogio: pygame.time.Clock, futuro: Future) -> tuple:
     fonte = pygame.font.SysFont("cambria", 26, bold=True)
@@ -193,6 +199,30 @@ def rodar() -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
     action_logger = ActionLogger(save_dir / "player_history.db")
     print(f"[Sistema] Action Logger inicializado: {save_dir / 'player_history.db'}")
+
+    # === Novos Sistemas: UI, Ambiance, Diálogo, Mundo ===
+    # UI Enhancements
+    barra_hp = BarraProgresso(largura=150, cor_cheia=(200, 80, 80), cor_vazia=(100, 100, 100))
+    barra_comida = BarraProgresso(largura=150, cor_cheia=(200, 150, 80), cor_vazia=(100, 100, 100))
+    barra_morale = BarraProgresso(largura=150, cor_cheia=(80, 200, 100), cor_vazia=(100, 100, 100))
+    tooltip_sistema = TooltipSistema()
+    print("[Sistema] UI Enhancements carregado")
+
+    # Location Ambiance System
+    gerenciador_ambiance = GerenciadorAmbiance()
+    sistema_tempo_ambiance = SistemaTempoAmbiane()
+    print("[Sistema] Location Ambiance System carregado")
+
+    # NPC Dialogue AI System
+    sistema_conversas = SistemaConversas()
+    print("[Sistema] NPC Dialogue AI System carregado")
+
+    # World Interactions System
+    gerenciador_objetos = GerenciadorObjetos()
+    gerenciador_objetos.gerar_objetos_procedural(tamanho_mundo=tamanho_real, densidade=0.02)
+    sistema_povoado = SistemaPovoado()
+    sistema_progresso = SistemaProgresso()
+    print(f"[Sistema] World Interactions System carregado com {len(gerenciador_objetos.objetos_mundo)} objetos")
 
     rodando = True
     tick = 0
@@ -505,13 +535,50 @@ def rodar() -> None:
                     contador_intervencao += 1
                     ultimo_tempo_acao = agora
                 elif evento.key == pygame.K_f:
-                    historico_chat.append(f"Sistema: {mundo.acao_contextual()}")
+                    # Interagir com objetos do mundo primeiro, depois ação contextual
+                    objetos_proximos = gerenciador_objetos.obter_objetos_proximo(mundo.humano[0], mundo.humano[1], raio=1)
+                    if objetos_proximos:
+                        obj = objetos_proximos[0]
+                        resultado = gerenciador_objetos.interagir_objeto(obj.id)
+                        if resultado['sucesso']:
+                            historico_chat.append(f"🏛️ {resultado['nome']}: {resultado['descricao']}")
+                            historico_chat.append(f"💰 Ganho: {resultado['recompensa']}")
+                            sistema_progresso.registrar_descoberta(resultado['nome'])
+                            # Apply rewards
+                            if 'ouro' in resultado['recompensa']:
+                                mundo.inventario['ouro'] = mundo.inventario.get('ouro', 0) + resultado['recompensa']['ouro']
+                            if 'conhecimento' in resultado['recompensa']:
+                                mundo.moralidade_jogador += resultado['recompensa']['conhecimento']
+                        else:
+                            historico_chat.append(f"Sistema: {resultado['mensagem']}")
+                    else:
+                        # Se não houver objeto, fazer ação contextual
+                        historico_chat.append(f"Sistema: {mundo.acao_contextual()}")
                     contador_intervencao += 1
                     ultimo_tempo_acao = agora
                 elif evento.key == pygame.K_y:
                     npc_proximo = mundo.obter_npc_proximo()
                     if npc_proximo:
                         mundo.npc_foco = npc_proximo
+                        # Generate AI-powered contextual dialogue
+                        npc_info = {
+                            'personalidade': getattr(npc_proximo, 'personalidade', 'Amigável'),
+                            'profissao': getattr(npc_proximo, 'profissao', 'Habitante'),
+                            'relacionamento_historico': 'Conhecido',
+                        }
+                        mundo_contexto = {
+                            'estacao': calendario.estacao_nome,
+                            'clima': getattr(clima_sistema.clima_atual, 'value', 'Ensolarado'),
+                            'hora': int(tempo_sistema.hora % 24),
+                        }
+                        dialogo_ia = sistema_conversas.iniciar_conversa(
+                            npc_nome=npc_proximo.nome,
+                            jogador_info={'nome': mundo.nome_humano, 'profissao': 'Aventureiro'},
+                            npc_info=npc_info,
+                            mundo_contexto=mundo_contexto,
+                            hora=int(tempo_sistema.hora % 24)
+                        )
+                        historico_chat.append(f"{npc_proximo.nome}: {dialogo_ia}")
                         modo_input = "npc"
                         texto_input = ""
                     else:
@@ -623,6 +690,14 @@ def rodar() -> None:
             
             # Registrar no histórico
             memoria.adicionar_evento(f"Dia {calendario.dia_mes} de {calendario.estacao_nome}, Ano {calendario.ano}")
+            
+            # === Atualizações dos novos sistemas Stardew Enhanced ===
+            # Atualizar cooldowns de objetos do mundo
+            gerenciador_objetos.atualizar_cooldowns()
+            
+            # Limpar cache de diálogos antigos (novo dia = novos diálogos)
+            sistema_tempo_ambiance.hora_atual = 6  # Day starts
+            sistema_conversas.gerenciador.limpar_cache_hora(new_hora=6)
 
 
         # Resultado assíncrono do Raphael (sem travar o jogo).
@@ -685,6 +760,27 @@ def rodar() -> None:
                 tile_y = camera_y + int(mouse_y // TAMANHO_CELULA)
                 mundo.definir_direcao_olhar_por_tile(tile_x, tile_y)
 
+        # === Atualizações por frame dos Novos Sistemas ===
+        if not pausado:
+            # Atualizar ambiance baseado em posição atual
+            gerenciador_ambiance.atualizar_ambiance(mundo.humano[0], mundo.humano[1], {})
+            
+            # Atualizar time system para efeitos ambientes
+            sistema_tempo_ambiance.hora_atual = int(tempo_sistema.hora % 24)
+            sistema_tempo_ambiance.clima_atual = getattr(clima_sistema.clima_atual, 'value', 'Ensolarado')
+            
+            # Atualizar barras de progresso
+            barra_hp.atualizar(mundo.hp / max(1, mundo.hp_max))
+            barra_comida.atualizar(max(0, mundo.inventario.get("comida", 0)) / max(1, mundo.inventario.get("comida", 100)))
+            barra_morale.atualizar((mundo.moralidade_jogador + 10) / 20)  # -10 to +10 mapped to 0-1
+            
+            # Gerar eventos do mundo aleatoriamente
+            evento_mundo = sistema_povoado.gerar_evento(mundo.humano[0], mundo.humano[1])
+            if evento_mundo and random.random() < 0.01:  # 1% chance per frame
+                historico_chat.append(f"[Evento] {evento_mundo['nome']}: {evento_mundo['reacao']}")
+                if "xp" not in historico_chat[-1] and "Encontro" not in historico_chat[-1]:
+                    sistema_progresso.registrar_evento(evento_mundo['id'])
+
         tick += 1
         mapa_altura = max(1, tela.get_height() - ALTURA_HUD - ALTURA_CHAT)
         render_qx = max(10, min(mundo.tamanho, tela.get_width() // TAMANHO_CELULA))
@@ -694,6 +790,34 @@ def rodar() -> None:
         renderizar_chat(tela, historico_chat, fonte_hud, modo_input, texto_input, modo_escuro=modo_escuro)
         if inventario_aberto:
             renderizar_inventario(tela, mundo, indice_inventario_hover)
+        
+        # === Renderizar UI Enhancements ===
+        if not pausado and not inventario_aberto:
+            # Renderizar barras de progresso no HUD
+            fonte_pequena = pygame.font.SysFont("constantia", 12)
+            
+            # HP Bar
+            barra_hp.desenhar(tela, x=10, y=tela.get_height() - ALTURA_HUD - 40, rotulo="HP")
+            
+            # Food Bar
+            barra_comida.desenhar(tela, x=10, y=tela.get_height() - ALTURA_HUD - 18, rotulo="Food")
+            
+            # Morale Bar
+            barra_morale.desenhar(tela, x=220, y=tela.get_height() - ALTURA_HUD - 40, rotulo="Moral")
+            
+            # Location ambiance info
+            ambiance_atual = gerenciador_ambiance.ambiance_atual or {}
+            if hasattr(ambiance_atual, 'descricao'):
+                loc_text = f"📍 {ambiance_atual.descricao[:40]}..."
+                txt = fonte_pequena.render(loc_text, True, (200, 200, 150))
+                tela.blit(txt, (tela.get_width() - 300, tela.get_height() - ALTURA_HUD - 20))
+            
+            # Nearby objects indicator
+            proximos = gerenciador_objetos.obter_objetos_proximo(mundo.humano[0], mundo.humano[1], raio=3)
+            if proximos:
+                obj_text = f"🏛️ {proximos[0].nome} ({abs(proximos[0].x - mundo.humano[0]) + abs(proximos[0].y - mundo.humano[1])} tiles)"
+                txt = fonte_pequena.render(obj_text, True, (200, 180, 100))
+                tela.blit(txt, (tela.get_width() - 300, tela.get_height() - ALTURA_HUD - 35))
         
         # Renderizar menus
         if menu_aberto == "ajuda":
