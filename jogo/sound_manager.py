@@ -383,8 +383,8 @@ class ContextoMusica:
                 return MusicaContexto.AVENTURA
         
         # Check HP for danger music
-        if hasattr(mundo, 'hp') and hasattr(mundo, 'hp_max'):
-            if mundo.hp < mundo.hp_max * 0.3:
+        if hasattr(mundo, 'hp') and hasattr(mundo, 'hp_maximo'):
+            if mundo.hp < mundo.hp_maximo * 0.3:
                 return MusicaContexto.PERIGO
         
         # Check location (if implemented in biome system)

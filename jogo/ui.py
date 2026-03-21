@@ -177,114 +177,83 @@ def _renderizar_sprite_personagem(
 
 
 def renderizar_menu_ajuda(tela: pygame.Surface) -> None:
-    """Renderiza menu de ajuda (F1) mostrando todas as teclas, comandos e como jogar."""
+    """Renderiza menu de ajuda (F1) responsivo para diferentes tamanhos de monitor."""
     assets = obter_assets()
     fonte_texto, fonte_titulo, fonte_subtitulo, _ = _fontes()
     
-    area = pygame.Rect(40, 20, tela.get_width() - 80, tela.get_height() - 60)
+    # Layout responsivo
+    margem = int(tela.get_width() * 0.03)  # 3% das bordas
+    largura = tela.get_width() - (margem * 2)
+    altura = tela.get_height() - (margem * 2)
+    area = pygame.Rect(margem, margem, largura, altura)
+    
     assets.painel(tela, area, estilo="beige")
     
-    titulo = "AJUDA - Controles, Comandos e Como Jogar"
-    tela.blit(fonte_subtitulo.render(titulo, True, (74, 48, 36)), (area.x + 20, area.y + 12))
+    titulo = "AJUDA - Controles e Guia Rápido"
+    txt_titulo = fonte_subtitulo.render(titulo, True, (74, 48, 36))
+    tela.blit(txt_titulo, (area.centerx - txt_titulo.get_width() // 2, area.y + 15))
     
-    # ===== SECAO 1: MOVIMENTO E ACOES =====
-    secao1_y = area.y + 50
-    tela.blit(fonte_titulo.render("MOVIMENTO E ACOES", True, (146, 98, 70)), (area.x + 20, secao1_y))
+    x_col1 = area.x + margem
+    x_col2 = area.x + area.width // 2 + margem // 2
+    y = area.y + 50
+    linha_altura = 18
     
-    movimentos = [
-        ("W/Seta Cima", "Mover para cima"),
-        ("A/Seta Esq", "Mover para esquerda"),
-        ("S/Seta Baixo", "Mover para baixo"),
-        ("D/Seta Dir", "Mover para direita"),
-    ]
-    
-    col1_x = area.x + 20
-    col2_x = area.x + area.width // 2
-    y = secao1_y + 28
-    linha_altura = 24
-    
+    # Seção 1: Movimento
+    tela.blit(fonte_titulo.render("MOVIMENTO", True, (146, 98, 70)), (x_col1, y))
+    y += 22
+    movimentos = [("W", "Cima"), ("A", "Esq"), ("S", "Baixo"), ("D", "Dir")]
     for i, (tecla, desc) in enumerate(movimentos):
-        col_x = col1_x if i < 2 else col2_x
+        col_x = x_col1 if i < 2 else x_col2
         col_y = y + (i % 2) * linha_altura
         tela.blit(fonte_titulo.render(f"[{tecla}]", True, (184, 100, 60)), (col_x, col_y))
-        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 110, col_y + 3))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 45, col_y))
     
-    y += 60
-    tela.blit(fonte_titulo.render("INTERACOES", True, (146, 98, 70)), (area.x + 20, y))
+    y += 50
     
-    interacoes = [
-        ("G", "Coletar recurso"),
-        ("E", "Escavar tesouro"),
-        ("B", "Construir casa"),
-        ("SPACE", "Atacar inimigo"),
-        ("C", "Matar animal"),
-        ("T", "Acariciar animal"),
-        ("Z", "Descansar"),
-        ("F", "Acao contextual"),
-    ]
-    
-    y += 28
-    for i, (tecla, desc) in enumerate(interacoes):
-        col_x = col1_x if i < 4 else col2_x
+    # Seção 2: Ações Gerais
+    tela.blit(fonte_titulo.render("ACOES", True, (146, 98, 70)), (x_col1, y))
+    y += 22
+    acoes = [("G", "Coletar"), ("E", "Escavar"), ("SPACE", "Atacar"), ("Z", "Descansar"),
+             ("T", "Animal"), ("F", "Contextual"), ("B", "Backstory"), ("Y", "Conversar")]
+    for i, (tecla, desc) in enumerate(acoes):
+        col_x = x_col1 if i < 4 else x_col2
         col_y = y + (i % 4) * linha_altura
         tela.blit(fonte_titulo.render(f"[{tecla}]", True, (184, 100, 60)), (col_x, col_y))
-        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 110, col_y + 3))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 70, col_y))
     
-    y += 110
-    tela.blit(fonte_titulo.render("MENU E NPCs", True, (146, 98, 70)), (area.x + 20, y))
+    y += 85
     
-    menu_keys = [
-        ("Y", "Conversar com NPC"),
-        ("I", "Abrir inventario"),
-        ("R", "Falar com Raphael"),
-        ("F1", "Abrir ajuda"),
-        ("F2", "Ver lore"),
-        ("F5", "Salvar jogo"),
-        ("F6", "Salvar como novo"),
-        ("ESC", "Menu de pausa"),
-        ("1-9", "Usar poderes"),
-    ]
-    
-    y += 28
-    for i, (tecla, desc) in enumerate(menu_keys):
-        col_x = col1_x if i < 5 else col2_x
-        col_y = y + (i % 5) * linha_altura
+    # Seção 3: Menus
+    tela.blit(fonte_titulo.render("MENUS", True, (146, 98, 70)), (x_col1, y))
+    y += 22
+    menus = [("I", "Inventário"), ("R", "Chat"), ("F1", "Ajuda"), ("F5", "Salvar"),
+             ("F7", "Configurações"), ("ESC", "Pausa"), ("F2", "Lore"), ("H", "Dungeon")]
+    for i, (tecla, desc) in enumerate(menus):
+        col_x = x_col1 if i < 4 else x_col2
+        col_y = y + (i % 4) * linha_altura
         tela.blit(fonte_titulo.render(f"[{tecla}]", True, (184, 100, 60)), (col_x, col_y))
-        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 110, col_y + 3))
+        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (col_x + 65, col_y))
     
-    # ===== SECAO 2: COMANDOS DE CHAT =====
-    y += 130
-    tela.blit(fonte_titulo.render("COMANDOS DE CHAT (Pressione R)", True, (146, 98, 70)), (area.x + 20, y))
+    y += 85
     
-    chat_cmds = [
-        ("!quest / !missao", "Gera uma quest contextualizada ao seu personagem"),
-        ("!profecia", "Gera quest sobre a profecia do mundo"),
-        ("!conflito", "Gera quest envolvendo o conflito principal"),
-        ("!history / !historico", "Mostra suas estatisticas de acoes"),
-        ("!stats", "Resumo estatistico do gameplay"),
-        ("!recent / !recentes", "Mostra suas ultimas 15 acoes com posicao"),
-    ]
-    
-    y += 28
-    for tecla, desc in chat_cmds:
-        tela.blit(fonte_titulo.render(f"{tecla}", True, (184, 100, 60)), (area.x + 20, y))
-        tela.blit(fonte_texto.render(desc, True, (112, 74, 48)), (area.x + 280, y + 2))
-        y += 26
-    
-    # ===== DICAS =====
-    y += 10
+    # Seção 4: Dicas rápidas
+    tela.blit(fonte_titulo.render("DICAS", True, (146, 98, 70)), (x_col1, y))
+    y += 22
     dicas = [
-        "DICA: Use chat commands (R) para gerar quests personalizadas ao seu mundo e personagem!",
-        "DICA: Seus quests sao contextualizados a sua origem, legado, motivacao e segredo.",
-        "DICA: Pressione F2 para ver a lore detalhada do mundo e seu destino.",
+        "• TAB = Próximo modo | SHIFT+TAB = Modo anterior",
+        "• P = Pescar | H = Dungeon | T = Trabalho",
+        "• Y = Conversar | B = Backstory | F1 = Ajuda",
+        "• R = Chat com IA | F5/F6 = Salvar jogo",
     ]
-    
     for dica in dicas:
-        tela.blit(fonte_pequena.render(dica, True, (146, 98, 70)), (area.x + 20, y))
-        y += 22
+        if y < area.bottom - 40:
+            tela.blit(fonte_texto.render(dica, True, (112, 74, 48)), (x_col1, y))
+            y += 18
     
-    instrucoes = "ESC para fechar | Sua jornada sera guiada pelo conhecimento"
-    tela.blit(fonte_texto.render(instrucoes, True, (146, 98, 70)), (area.x + 20, area.bottom - 30))
+    # Rodapé
+    instrucoes = "ESC para fechar | F7 para Configurações"
+    txt_inst = fonte_texto.render(instrucoes, True, (146, 98, 70))
+    tela.blit(txt_inst, (area.centerx - txt_inst.get_width() // 2, area.bottom - 25))
 
 
 def renderizar_menu_lore(tela: pygame.Surface, mundo, raphael_memoria) -> None:
@@ -518,7 +487,10 @@ def renderizar_mundo(
 
             for npc in mundo.npcs.values():
                 if tuple(npc.get("pos", (-999, -999))) == pos:
-                    _renderizar_sprite_personagem(tela, rect, npc.get("perfil", {}), "baixo", tick_visual, animar=False)
+                    # Don't render NPCs that are indoors (in their homes)
+                    npc_id = npc.get("id")
+                    if not mundo.npc_em_casa.get(npc_id, False):
+                        _renderizar_sprite_personagem(tela, rect, npc.get("perfil", {}), "baixo", tick_visual, animar=False)
 
     hx, hy = mundo.humano
     
@@ -577,16 +549,23 @@ def renderizar_chat(
 ) -> None:
     assets = obter_assets()
     largura_tela, altura_tela = tela.get_size()
-    chat_y = altura_tela - ALTURA_CHAT
-    area = pygame.Rect(12, chat_y + 8, largura_tela - 24, ALTURA_CHAT - 16)
+    
+    # Chat panel on the right side - leave space for left sidebar
+    sidebar_padding = 250  # Space for left sidebar
+    chat_width = 280
+    chat_x = largura_tela - chat_width - 8  # Right side with small padding
+    chat_y = 12
+    chat_height = altura_tela - 120 - 10  # Reduced height to avoid overlap with health bars
+    
+    area = pygame.Rect(chat_x, chat_y, chat_width - 12, chat_height)
     assets.painel(tela, area, estilo="brown" if modo_escuro else "beige")
     assets.painel(tela, area.inflate(-16, -48), estilo="brown", inset=True, alpha=224)
 
-    titulo = "CRONICA DO REINO | R: Raphael | Y: NPC | F: contexto | ESC: pausa | F5/F6: salvar"
+    titulo = "CRONICA DO REINO"
     tela.blit(fonte_hud.render(titulo, True, COR_AVISO), (area.x + 14, area.y + 10))
 
     linhas: list[str] = []
-    for msg in historico_chat[-18:]:
+    for msg in historico_chat[-12:]:
         linhas.extend(quebrar_texto(fonte_hud, msg, area.width - 30))
 
     max_linhas = max(1, (area.height - 88) // 22)
@@ -602,8 +581,8 @@ def renderizar_chat(
             tipo = "NPC"
         else:
             tipo = "SAVE"
-        tela.blit(fonte_hud.render("ENTER confirma | ESC cancela", True, (178, 162, 134)), (campo.x, campo.y - 22))
-        tela.blit(fonte_hud.render(f"[{tipo}] {(texto_input + '_')[:140]}", True, (72, 52, 42)), (campo.x + 8, campo.y + 4))
+        tela.blit(fonte_hud.render("ENTER: confirma", True, (178, 162, 134)), (campo.x, campo.y - 22))
+        tela.blit(fonte_hud.render(f"[{tipo}] {(texto_input + '_')[:40]}", True, (72, 52, 42)), (campo.x + 8, campo.y + 4))
 
 
 def renderizar_inventario(tela: pygame.Surface, mundo, indice_hover: int | None = None) -> None:
@@ -785,7 +764,7 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                     elif estado == "novo_nome":
                         if evento.key == pygame.K_ESCAPE:
                             estado = "menu"
-                        elif evento.key == pygame.K_r:
+                        elif evento.key == pygame.K_SPACE:
                             preview = iniciar_preview_lore()
                         elif evento.key == pygame.K_RETURN:
                             return "novo", {
@@ -887,7 +866,7 @@ def menu_inicial() -> tuple[str, dict | str | None]:
 
                 dicas = [
                     "ENTER inicia a campanha",
-                    "R gera outro heroi aleatorio",
+                    "SPACE gera outro heroi aleatorio",
                     "ESC volta ao menu",
                 ]
                 for i, linha in enumerate(dicas):

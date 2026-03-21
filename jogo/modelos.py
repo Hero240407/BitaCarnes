@@ -117,6 +117,11 @@ class Mundo:
         self.tiles_armadilha: set[tuple[int, int]] = set()
         self.tiles_maldito: set[tuple[int, int]] = set()
         
+        # Caminhos e estradas
+        self.tiles_caminho_pedra: set[tuple[int, int]] = set()  # Stone paths (low development)
+        self.tiles_estrada_asfalto: set[tuple[int, int]] = set()  # Asphalt roads (high development)
+        self.tiles_mar: set[tuple[int, int]] = set()  # Sea/ocean tiles
+        
         # Estruturas de fantasia e isekai adicionadas
         self.tiles_torre_magica: set[tuple[int, int]] = set()
         self.tiles_dragao_covil: set[tuple[int, int]] = set()
@@ -134,6 +139,15 @@ class Mundo:
         self.casa_para_id: dict[tuple[int, int], str] = {}
         self.interior_ativo: str | None = None
         self.npc_foco: str | None = None
+        
+        # NPC Movement System
+        self.npc_rotas: dict[str, list[tuple[int, int]]] = {}  # Route for each NPC
+        self.npc_rota_indice: dict[str, int] = {}  # Current position in route
+        self.npc_em_casa: dict[str, bool] = {}  # Whether NPC is inside home
+        self.npc_proximo_movimento: dict[str, float] = {}  # Time until next movement
+        
+        # NPC Behavior System (AI-driven routines)
+        self.npc_comportamento: dict[str, ComportamentoNPC] = {}  # AI behavior for each NPC
 
         self.world_lore = gerar_lore_mundo(self.nome_humano)
         self.ano_base = int(self.world_lore.get("era_inicial", 1500))
@@ -314,88 +328,396 @@ class Mundo:
         return (x, y) not in self.tiles_montanha and (x, y) not in self.tiles_agua
 
     def gerar_terreno(self) -> None:
-        # Usa tema do lore para influenciar geracao de mundo
+        """Generate world terrain with improved algorithms for coherent biomes."""
         tema_terra = self.world_lore.get("tema_terra", "reino_fragmentado")
         
-        # Gera blocos suaves para estilo de biomas mais legivel e menos caotico.
-        if tema_terra == "terra_mutante":
-            # Magia descontrolada: mais agua, terras malditas
-            for _ in range(max(2, self.tamanho // 2)):
-                cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
-                raio = random.randint(2, 5)
-                for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
-                    for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
-                        if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.25:
-                            if (x, y) not in self.tiles_montanha:
-                                self.tiles_agua.add((x, y))
-        elif tema_terra == "ruinas_mystticas":
-            # Muitas ruinas: montanhas e santuarios
-            for _ in range(max(3, self.tamanho // 2)):
-                cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
-                raio = random.randint(2, 4)
-                for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
-                    for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
-                        if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.45:
-                            self.tiles_montanha.add((x, y))
-        else:
-            # reino_fragmentado e santuarios_selvagens: normal
-            for _ in range(max(2, self.tamanho // 3)):
-                cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
-                raio = random.randint(2, 4)
-                for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
-                    for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
-                        if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.35:
-                            self.tiles_montanha.add((x, y))
-
-        for _ in range(max(2, self.tamanho // 4)):
-            cx, cy = random.randint(0, self.tamanho - 1), random.randint(0, self.tamanho - 1)
-            raio = random.randint(2, 5)
-            for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
-                for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
-                    if abs(x - cx) + abs(y - cy) <= raio and random.random() < 0.28:
-                        if (x, y) not in self.tiles_montanha:
-                            self.tiles_agua.add((x, y))
-
+        # Step 1: Generate village centers first (before any blocked terrain)
+        # This will be done later in gerar_sociedade_inicial()
+        # But we need to reserve zones for villages
+        zonas_vila_reservadas: set[tuple[int, int]] = set()
+        
+        # Step 2: Generate coherent mountain ranges (not scattered)
+        self._gerar_montanhas_coerentes(tema_terra)
+        
+        # Step 3: Generate water lakes and seas (7+ tiles minimum for lakes)
+        self._gerar_agua_coerente(tema_terra)
+        
+        # Step 4: Generate stone groups (3+ tiles minimum)
+        # Stones are represented as scattered elements across biomes
+        # For now, we'll use the existing tiles for added visual variety
+        
+        # Step 5: Spawn basic resources
         self.spawn_tiles(self.tiles_arvore, int(self.tamanho * 0.85))
         self.spawn_tiles(self.tiles_comida, int(self.tamanho * 0.7))
         self.spawn_tiles(self.tiles_inimigo, int(self.tamanho * 0.1))
         self.spawn_animais(max(4, int(self.tamanho * 0.2)))
         
-        # Mais santuarios em mundos misticos
+        # Step 6: Generate sanctuaries
         santuario_qty = int(self.tamanho * 0.08) if tema_terra == "ruinas_mystticas" else int(self.tamanho * 0.04)
         self.spawn_tiles(self.tiles_santuario, max(1, santuario_qty))
 
+        # Step 7: Generate treasures, traps, curses
         for _ in range(int(self.tamanho * 0.08)):
             x, y = self.posicao_livre_aleatoria()
             self.tiles_tesouro[(x, y)] = random.randint(10, 60)
 
-        # Mais zonas malditas em terra mutante
         armadilha_qty = int(self.tamanho * 0.08) if tema_terra == "terra_mutante" else int(self.tamanho * 0.06)
         maldito_qty = int(self.tamanho * 0.06) if tema_terra == "terra_mutante" else int(self.tamanho * 0.03)
         self.spawn_tiles(self.tiles_armadilha, armadilha_qty)
         self.spawn_tiles(self.tiles_maldito, maldito_qty)
         
-        # Estruturas de fantasia e isekai adicionadas
-        # Torres magicas
+        # Step 8: Estruturas de fantasia e isekai
         self.spawn_tiles(self.tiles_torre_magica, max(1, int(self.tamanho * 0.04)))
-        # Covis de dragões
         self.spawn_tiles(self.tiles_dragao_covil, max(1, int(self.tamanho * 0.02)))
-        # Florestas sagradas
         self.spawn_tiles(self.tiles_floresta_sagrada, max(1, int(self.tamanho * 0.05)))
-        # Templos antigos
         self.spawn_tiles(self.tiles_templo_antigo, max(1, int(self.tamanho * 0.03)))
-        # Cavernas de cristal
         self.spawn_tiles(self.tiles_caverna_cristal, max(1, int(self.tamanho * 0.03)))
-        # Portais isekai
         self.spawn_tiles(self.tiles_portal_isekai, max(1, int(self.tamanho * 0.02)))
-        # Minas de anão
         self.spawn_tiles(self.tiles_mina_anao, max(1, int(self.tamanho * 0.03)))
-        # Florestas de elfos
         self.spawn_tiles(self.tiles_floresta_elfo, max(1, int(self.tamanho * 0.04)))
-        # Vulcões menores
         self.spawn_tiles(self.tiles_vulcao_menor, max(1, int(self.tamanho * 0.02)))
-        # Tumulões antigos (tumbas)
         self.spawn_tiles(self.tiles_tumulo_antigo, max(1, int(self.tamanho * 0.03)))
+
+    def _gerar_montanhas_coerentes(self, tema_terra: str) -> None:
+        """Generate mountain clusters >= 3 tiles using better algorithms."""
+        if tema_terra == "terra_mutante":
+            num_clusters = max(2, self.tamanho // 4)
+            fill_rate = 0.20
+        elif tema_terra == "ruinas_mystticas":
+            num_clusters = max(2, self.tamanho // 3)
+            fill_rate = 0.25
+        else:  # reino_fragmentado, santuarios_selvagens
+            num_clusters = max(2, self.tamanho // 4)
+            fill_rate = 0.20
+
+        for _ in range(num_clusters):
+            cx = random.randint(2, self.tamanho - 3)
+            cy = random.randint(2, self.tamanho - 3)
+            raio = random.randint(2, 4)
+            
+            # Generate cluster using diamond/circle shape
+            group_tiles: set[tuple[int, int]] = set()
+            for y in range(max(0, cy - raio), min(self.tamanho, cy + raio + 1)):
+                for x in range(max(0, cx - raio), min(self.tamanho, cx + raio + 1)):
+                    # Use manhattan distance for more organic shapes
+                    distancia = abs(x - cx) + abs(y - cy)
+                    if distancia <= raio and random.random() < fill_rate:
+                        group_tiles.add((x, y))
+            
+            # Only add if group has at least 3 tiles (minimum mountain size)
+            if len(group_tiles) >= 3:
+                self.tiles_montanha.update(group_tiles)
+
+    def _gerar_agua_coerente(self, tema_terra: str) -> None:
+        """Generate water lakes and seas. Lakes should have 7+ tiles (minimum lake size)."""
+        if tema_terra == "terra_mutante":
+            num_clusters = max(2, self.tamanho // 3)
+            base_size = 10
+        elif tema_terra == "ruinas_mystticas":
+            num_clusters = max(1, self.tamanho // 4)
+            base_size = 8
+        else:  # reino_fragmentado, santuarios_selvagens
+            num_clusters = max(2, self.tamanho // 3)
+            base_size = 10
+
+        min_lake_size = 7
+
+        # Generate coherent water clusters
+        for _ in range(num_clusters):
+            cx = random.randint(1, self.tamanho - 2)
+            cy = random.randint(1, self.tamanho - 2)
+            raio = random.randint(1, 3)
+            
+            group_tiles: set[tuple[int, int]] = set()
+            # Generate lake - spiral outward from center to ensure min size
+            for radius_check in range(raio + 1):
+                for y in range(max(0, cy - radius_check), min(self.tamanho, cy + radius_check + 1)):
+                    for x in range(max(0, cx - radius_check), min(self.tamanho, cx + radius_check + 1)):
+                        distancia = abs(x - cx) + abs(y - cy)
+                        if distancia <= radius_check and 0 <= x < self.tamanho and 0 <= y < self.tamanho:
+                            # Don't place water on mountains or existing water too close
+                            if (x, y) not in self.tiles_montanha and (x, y) not in self.tiles_agua:
+                                # Bias towards center
+                                prob = 0.7 if distancia == 0 else (0.5 if radius_check <= 1 else 0.35)
+                                if random.random() < prob:
+                                    group_tiles.add((x, y))
+                                # Ensure we get enough tiles for lakes
+                                elif len(group_tiles) < base_size and distancia <= radius_check:
+                                    group_tiles.add((x, y))
+            
+            # Only add if group meets minimum lake size
+            if len(group_tiles) >= min_lake_size:
+                self.tiles_agua.update(group_tiles)
+        
+        # Optionally add some sea/ocean around edges
+        self._gerar_mar_bordas()
+
+    def _gerar_mar_bordas(self) -> None:
+        """Generate sea/ocean tiles around world edges."""
+        if self.tamanho < 20:
+            return  # Only for larger worlds
+        
+        # Add ocean to edges (5% chance per edge tile)
+        borda_thickness = 2
+        for x in range(self.tamanho):
+            for y in range(self.tamanho):
+                is_on_edge = x < borda_thickness or x >= self.tamanho - borda_thickness or \
+                             y < borda_thickness or y >= self.tamanho - borda_thickness
+                if is_on_edge and random.random() < 0.5:
+                    if not self._tile_livre_para_spawn(x, y):
+                        continue
+                    self.tiles_mar.add((x, y))
+
+    def _gerar_caminhos_entre_vilas(self) -> None:
+        """Generate paths connecting villages after village generation."""
+        if len(self.vilas) < 2:
+            return  # Need at least 2 villages to connect
+        
+        vilas_list = list(self.vilas.values())
+        
+        # Connect nearby villages in a network
+        conectadas: set[int] = set()
+        for i in range(len(vilas_list)):
+            if len(conectadas) < len(vilas_list) - 1:
+                # Find nearest unconnected village
+                min_dist = float('inf')
+                nearest_j = -1
+                vi_pos = tuple(vilas_list[i]["pos"])
+                
+                for j in range(len(vilas_list)):
+                    if i == j or j in conectadas:
+                        continue
+                    vj_pos = tuple(vilas_list[j]["pos"])
+                    dist = abs(vi_pos[0] - vj_pos[0]) + abs(vi_pos[1] - vj_pos[1])
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_j = j
+                
+                if nearest_j >= 0:
+                    vj_pos = tuple(vilas_list[nearest_j]["pos"])
+                    # Determine path type based on village technology level
+                    tech_avg = (vilas_list[i].get("tecnologia", 1) + vilas_list[nearest_j].get("tecnologia", 1)) / 2
+                    usar_asfalto = tech_avg >= 2.5
+                    
+                    # Trace path with A* pathfinding for better routes
+                    self._tracar_caminho_astar(vi_pos, vj_pos, usar_asfalto)
+                    conectadas.add(nearest_j)
+
+    def _tracar_caminho_astar(self, inicio: tuple[int, int], fim: tuple[int, int], usar_asfalto: bool = False) -> None:
+        """Trace a path using simple A* to go around obstacles."""  
+        from collections import deque
+        
+        x0, y0 = inicio
+        x1, y1 = fim
+        
+        # Use simple BFS pathfinding to navigate around terrain
+        queue: deque = deque([(x0, y0, [(x0, y0)])])
+        visited: set[tuple[int, int]] = {(x0, y0)}
+        path_found: list[tuple[int, int]] | None = None
+        
+        while queue and len(visited) < self.tamanho * self.tamanho:
+            x, y, path = queue.popleft()
+            
+            if x == x1 and y == y1:
+                path_found = path
+                break
+            
+            # Try all 4 directions, prioritizing straight paths
+            neighbors = [
+                (x, y + 1),  # down
+                (x, y - 1),  # up
+                (x + 1, y),  # right
+                (x - 1, y),  # left
+            ]
+            
+            for nx, ny in neighbors:
+                if (nx, ny) not in visited and 0 <= nx < self.tamanho and 0 <= ny < self.tamanho:
+                    if self.eh_caminavel(nx, ny):
+                        visited.add((nx, ny))
+                        queue.append((nx, ny, path + [(nx, ny)]))
+        
+        # Add path tiles if we found a route
+        if path_found:
+            for x, y in path_found:
+                if self.eh_caminavel(x, y):
+                    if usar_asfalto:
+                        self.tiles_estrada_asfalto.add((x, y))
+                    else:
+                        self.tiles_caminho_pedra.add((x, y))
+
+    def _tracar_caminho(self, inicio: tuple[int, int], fim: tuple[int, int], usar_asfalto: bool = False) -> None:
+        """Trace a path between two points using Bresenham algorithm (simple line)."""
+        x0, y0 = inicio
+        x1, y1 = fim
+        
+        # Bresenham line algorithm
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        
+        x, y = x0, y0
+        while True:
+            pos = (x, y)
+            
+            # Add to appropriate path set if walkable
+            if self.eh_caminavel(x, y):
+                if usar_asfalto:
+                    self.tiles_estrada_asfalto.add(pos)
+                else:
+                    self.tiles_caminho_pedra.add(pos)
+            
+            if x == x1 and y == y1:
+                break
+            
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x += sx
+            if e2 < dx:
+                err += dx
+                y += sy
+
+    def _gerar_roteiros_npcs(self) -> None:
+        """Generate patrol routes for NPCs on village paths and AI-driven daily routines."""
+        for npc_id, npc in self.npcs.items():
+            vila_id = npc.get("vila_id")
+            if not vila_id or vila_id not in self.vilas:
+                continue
+            
+            vila = self.vilas[vila_id]
+            vila_pos = tuple(vila["pos"])
+            casa_pos = tuple(npc.get("pos", [0, 0]))
+            
+            # Build route: home → village center → nearby areas → home
+            rota: list[tuple[int, int]] = []
+            
+            # Start at home
+            rota.append(casa_pos)
+            
+            # Go to village center if different
+            if casa_pos != vila_pos:
+                rota.append(vila_pos)
+            
+            # Add some nearby patrol positions
+            vx, vy = vila_pos
+            for _ in range(3):
+                px = max(0, min(self.tamanho - 1, vx + random.randint(-3, 3)))
+                py = max(0, min(self.tamanho - 1, vy + random.randint(-3, 3)))
+                if self.eh_caminavel(px, py):
+                    rota.append((px, py))
+            
+            # Return home
+            if rota and rota[-1] != casa_pos:
+                rota.append(casa_pos)
+            
+            # Store route for this NPC
+            self.npc_rotas[npc_id] = rota if len(rota) > 1 else [casa_pos]
+            self.npc_rota_indice[npc_id] = 0
+            self.npc_em_casa[npc_id] = True
+            self.npc_proximo_movimento[npc_id] = 0.0
+            
+            # Generate AI-driven daily routine for NPC
+            if npc_id in self.npc_comportamento:
+                comportamento = self.npc_comportamento[npc_id]
+                # Generate personalized routine based on NPC personality
+                try:
+                    comportamento.gerar_rotina_ia(
+                        hora_local_trabalho=vila_pos,
+                        hora_taverna=vila_pos,  # Tavern at village center
+                        hora_praca=vila_pos,    # Plaza at village center
+                    )
+                except Exception as e:
+                    print(f"[Aviso] Falha ao gerar rotina IA para {npc.get('nome', npc_id)}: {e}")
+                    # Fallback to random routine
+                    comportamento.gerar_rotina_randomica()
+
+    def atualizar_npcs_movimento(self, delta_tempo: float) -> None:
+        """Update NPC movement based on time, patrol routes, and daily routines."""
+        for npc_id, npc in self.npcs.items():
+            # Skip if NPC is in a house interior
+            if self.interior_ativo is not None and npc.get("casa_id") == self.interior_ativo:
+                continue
+            
+            # Get NPC's current activity from AI routine (if available)
+            comportamento = self.npc_comportamento.get(npc_id)
+            atividade_atual = None
+            if comportamento and comportamento.rotina:
+                # Get current hour from game time
+                hora_atual = getattr(self, 'hora_atual', 12)  # Default to noon if not available
+                atividade_atual = comportamento.rotina.obter_atividade_atual(hora_atual)
+            
+            # Update movement timer
+            if npc_id in self.npc_proximo_movimento:
+                self.npc_proximo_movimento[npc_id] -= delta_tempo
+            
+            # Skip if not enough time has passed
+            if self.npc_proximo_movimento.get(npc_id, 0) > 0:
+                continue
+            
+            rota = self.npc_rotas.get(npc_id, [npc.get("pos", [0, 0])])
+            if not rota:
+                continue
+            
+            indice = self.npc_rota_indice.get(npc_id, 0)
+            current_pos = npc.get("pos", [0, 0])
+            target_pos = rota[indice]
+            
+            # If there's a current activity, influence movement towards it
+            if atividade_atual and atividade_atual.tipo_atividade != "dormir":
+                # Move towards activity location somewhat (80% chance)
+                if random.random() < 0.2:
+                    target_pos = atividade_atual.locacao
+            
+            # Check if reached current target
+            if tuple(current_pos) == target_pos:
+                # Move to next waypoint in route
+                indice = (indice + 1) % len(rota)
+                self.npc_rota_indice[npc_id] = indice
+                target_pos = rota[indice]
+                
+                # Update "em_casa" status
+                self.npc_em_casa[npc_id] = (tuple(target_pos) == tuple(npc.get("pos", [0, 0])))
+            
+            # Move one step towards target
+            dx = target_pos[0] - current_pos[0]
+            dy = target_pos[1] - current_pos[1]
+            
+            if dx != 0 or dy != 0:
+                # Move closer to target
+                if dx > 0:
+                    new_x = current_pos[0] + 1
+                elif dx < 0:
+                    new_x = current_pos[0] - 1
+                else:
+                    new_x = current_pos[0]
+                
+                if dy > 0:
+                    new_y = current_pos[1] + 1
+                elif dy < 0:
+                    new_y = current_pos[1] - 1
+                else:
+                    new_y = current_pos[1]
+                
+                # Check if new position is walkable
+                if self.eh_caminavel(new_x, new_y) and not self.posicao_ocupada_por_entidade(new_x, new_y):
+                    npc["pos"] = [new_x, new_y]
+                    self.npc_proximo_movimento[npc_id] = 1.0  # Time between moves (seconds) - reduced speed
+                else:
+                    # If can't move forward, try alternate direction
+                    alt_positions = []
+                    for (ax, ay) in [(new_x, current_pos[1]), (current_pos[0], new_y)]:
+                        if self.eh_caminavel(ax, ay) and not self.posicao_ocupada_por_entidade(ax, ay):
+                            alt_positions.append((ax, ay))
+                    
+                    if alt_positions:
+                        ax, ay = random.choice(alt_positions)
+                        npc["pos"] = [ax, ay]
+                        self.npc_proximo_movimento[npc_id] = 1.0  # Reduced speed
+                    else:
+                        # Stuck, skip this update
+                        self.npc_proximo_movimento[npc_id] = 0.2
 
     def spawn_tiles(self, tile_set: set[tuple[int, int]], quantidade_alvo: int) -> None:
         while len(tile_set) < quantidade_alvo:
@@ -444,10 +766,15 @@ class Mundo:
             }
 
     def gerar_sociedade_inicial(self) -> None:
+        """Generate villages with protected zones (no mountains inside villages)."""
         banco_personagens = obter_banco_personagens()
         qtd_vilas = random.randint(1, max(2, self.tamanho // 14))
         for i in range(qtd_vilas):
             vx, vy = self.posicao_livre_aleatoria()
+            
+            # STEP 1: Clear mountains/water from village protection zone (5x5 area)
+            self._limpar_zona_vila(vx, vy, raio_protecao=2)
+            
             self.tiles_vila.add((vx, vy))
             vila_id = f"v{i + 1}"
             casas: list[str] = []
@@ -510,6 +837,11 @@ class Mundo:
                         "relacao": 0,
                         "perfil": perfil_npc,
                     }
+                    
+                    # Create AI behavior system for NPC (lazy import to avoid circular dependency)
+                    from .npc_relations import ComportamentoNPC
+                    comportamento = ComportamentoNPC(npc_id, perfil_npc)
+                    self.npc_comportamento[npc_id] = comportamento
 
             if self.vilas[vila_id]["tem_igreja"]:
                 self.tiles_igreja.add((vx, vy))
@@ -518,6 +850,26 @@ class Mundo:
                 by = vy
                 if self.eh_caminavel(bx, by):
                     self.tiles_biblioteca.add((bx, by))
+        
+        # STEP 2: Generate paths connecting villages
+        self._gerar_caminhos_entre_vilas()
+        
+        # STEP 3: Generate NPC patrol routes and initialize movement
+        self._gerar_roteiros_npcs()
+
+    def _limpar_zona_vila(self, vx: int, vy: int, raio_protecao: int = 2) -> None:
+        """Clear mountains and water from village protection zone."""
+        for dx in range(-raio_protecao, raio_protecao + 1):
+            for dy in range(-raio_protecao, raio_protecao + 1):
+                x = vx + dx
+                y = vy + dy
+                if 0 <= x < self.tamanho and 0 <= y < self.tamanho:
+                    pos = (x, y)
+                    # Remove mountains and water from village zone
+                    self.tiles_montanha.discard(pos)
+                    self.tiles_agua.discard(pos)
+                    self.tiles_mar.discard(pos)
+
 
     def mover_humano(self, direcao: str) -> bool:
         self.direcao_olhar = direcao
@@ -890,10 +1242,15 @@ class Mundo:
                 vila["pos"][1] += dy
 
         self.tamanho += qtd
-        self.spawn_tiles(self.tiles_comida, int(self.tamanho * 0.7))
-        self.spawn_tiles(self.tiles_arvore, int(self.tamanho * 0.85))
-        self.spawn_tiles(self.tiles_inimigo, int(self.tamanho * 0.1))
-        self.spawn_animais(max(4, int(self.tamanho * 0.2)))
+        
+        # Generate terrain specifically in the expanded areas for better coverage
+        # Add more terrain to new expanded zones to avoid sparse areas
+        self.spawn_tiles(self.tiles_agua, max(int(self.tamanho * 0.15), 5))  # Water for variety
+        self.spawn_tiles(self.tiles_montanha, max(int(self.tamanho * 0.12), 4))  # Mountains
+        self.spawn_tiles(self.tiles_comida, int(self.tamanho * 0.65))  # Food
+        self.spawn_tiles(self.tiles_arvore, int(self.tamanho * 0.8))  # Trees (dense forest)
+        self.spawn_tiles(self.tiles_inimigo, int(self.tamanho * 0.08))  # Enemies
+        self.spawn_animais(max(6, int(self.tamanho * 0.25)))  # Animals
 
     def receber_dano(self, valor: float, motivo: str, tipo: str = "geral") -> bool:
         reducao = max(0.0, min(0.65, self.bonus_equipamentos.get("defesa", 0.0) * 0.03))
