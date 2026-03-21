@@ -6,6 +6,9 @@ OBJETIVO_PATH = Path(__file__).resolve().parent.parent / "objectives.json"
 SAVE_DIR = Path(__file__).resolve().parent.parent / "saves"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 NOME_MODELO = "llama3"
+NOME_MODELO_PESADO = "llama3"
+NOME_MODELO_BASE = "qwen2.5:1.5b-base"
+NOME_MODELO_EMBED = "nomic-embed-text"
 
 DIRECOES = {
     "cima": (0, -1),
@@ -52,7 +55,10 @@ TECLAS_RESERVADAS = {
     pygame.K_SPACE,
     pygame.K_c,
     pygame.K_t,
+    pygame.K_i,
     pygame.K_z,
+    pygame.K_f,
+    pygame.K_y,
     pygame.K_r,
     pygame.K_F5,
     pygame.K_ESCAPE,
