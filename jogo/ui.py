@@ -852,8 +852,14 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                         # Check save buttons
                         for rect_botao, save_idx in rects_botoes_saves:
                             if rect_botao.collidepoint(mouse_pos):
-                                idx_save = save_idx
-                                return "carregar", saves[idx_save]
+                                if save_idx == "reload":
+                                    # Reload saves
+                                    saves = listar_saves()
+                                    if saves:
+                                        idx_save = max(0, min(idx_save, len(saves) - 1))
+                                else:
+                                    idx_save = save_idx
+                                    return "carregar", saves[idx_save]
                         
                         # Check delete button
                         if rect_botao_delete and rect_botao_delete.collidepoint(mouse_pos):
@@ -915,6 +921,16 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                     elif estado == "carregar":
                         if evento.key == pygame.K_ESCAPE:
                             estado = "menu"
+                        elif evento.key == pygame.K_r and not saves:
+                            # Reload saves when no saves found
+                            saves = listar_saves()
+                            if saves:
+                                idx_save = max(0, min(idx_save, len(saves) - 1))
+                        elif evento.key == pygame.K_RETURN and not saves:
+                            # Reload saves when no saves found (also on RETURN)
+                            saves = listar_saves()
+                            if saves:
+                                idx_save = max(0, min(idx_save, len(saves) - 1))
                         elif evento.key in {pygame.K_UP, pygame.K_w} and saves:
                             idx_save = (idx_save - 1) % len(saves)
                         elif evento.key in {pygame.K_DOWN, pygame.K_s} and saves:
@@ -1157,6 +1173,27 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 for i, linha in enumerate(dicas_carregar[:3]):
                     tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, dica_y + i * 18))
             
+            elif estado == "carregar" and not saves:
+                # No saves found
+                mensagem_bloco = pygame.Rect(painel_direito.x + 40, painel_direito.y + 80, painel_direito.width - 80, 200)
+                assets.painel(tela, mensagem_bloco, estilo="beige", inset=True, alpha=240)
+                
+                msg_principal = fonte_subtitulo.render("Nenhum save encontrado", True, (86, 60, 44))
+                tela.blit(msg_principal, msg_principal.get_rect(center=(painel_direito.centerx, mensagem_bloco.y + 40)))
+                
+                msg_desc = fonte_texto.render("Crie um novo jogo para começar", True, (102, 74, 56))
+                tela.blit(msg_desc, msg_desc.get_rect(center=(painel_direito.centerx, mensagem_bloco.y + 80)))
+                
+                # Reload button
+                rect_reload = pygame.Rect(painel_direito.x + 60, mensagem_bloco.y + 130, painel_direito.width - 120, 50)
+                reload_hovered = rect_reload.collidepoint(mouse_pos_atual)
+                assets.botao(tela, rect_reload, fonte_texto, "Recarregar (R)", ativo=reload_hovered)
+                rects_botoes_saves = [(rect_reload, "reload")]
+                
+                # Tips
+                dica_reload = "R ou ENTER: recarregar | ESC: voltar"
+                tela.blit(fonte_texto.render(dica_reload, True, (102, 74, 56)), (painel_direito.x + 20, painel_direito.bottom - 30))
+            
             elif estado == "renomear":
                 # Rename interface
                 tela.blit(fonte_subtitulo.render("Renomear Save", True, (245, 232, 206)), (painel_direito.x + 20, painel_direito.y + 30))
@@ -1229,3 +1266,82 @@ def menu_inicial() -> tuple[str, dict | str | None]:
             relogio.tick(60)
     finally:
         executor_preview.shutdown(wait=False, cancel_futures=True)
+
+
+def renderizar_tela_carregamento(
+    tela: pygame.Surface,
+    relogio: pygame.time.Clock,
+    nome_save: str,
+    etapas: list[str],
+    indice_etapa: int = 0,
+    progresso_etapa: float = 0.0
+) -> None:
+    """
+    Renders a loading screen for save files.
+    
+    Args:
+        tela: The pygame surface to render to
+        relogio: The pygame clock for frame rate control
+        nome_save: Name of the save being loaded
+        etapas: List of loading stages (e.g., ["Carregando dados...", "Carregando mundo..."])
+        indice_etapa: Current stage index (0-based)
+        progresso_etapa: Progress within current stage (0.0-1.0)
+    """
+    fonte = pygame.font.SysFont("cambria", 28, bold=True)
+    fonte_txt = pygame.font.SysFont("constantia", 16)
+    fonte_pequena = pygame.font.SysFont("constantia", 14)
+    
+    # Fill background
+    tela.fill((18, 24, 38))
+    
+    # Main panel
+    painel = pygame.Rect(80, 80, tela.get_width() - 160, tela.get_height() - 160)
+    pygame.draw.rect(tela, (208, 190, 150), painel, border_radius=16)
+    pygame.draw.rect(tela, (146, 110, 78), painel, 4, border_radius=16)
+    
+    # Title
+    titulo = fonte.render("Carregando Jogo", True, (74, 48, 36))
+    tela.blit(titulo, (painel.x + 24, painel.y + 20))
+    
+    # Save name
+    nome_render = fonte_txt.render(f"Save: {nome_save}", True, (98, 70, 52))
+    tela.blit(nome_render, (painel.x + 24, painel.y + 56))
+    
+    # Progress bar
+    barra = pygame.Rect(painel.x + 24, painel.y + 100, painel.width - 48, 32)
+    pygame.draw.rect(tela, (122, 94, 70), barra, border_radius=8)
+    
+    # Calculate overall progress
+    progresso_total = (indice_etapa + progresso_etapa) / max(1, len(etapas))
+    preenchida = barra.inflate(-6, -6)
+    preenchida.width = int((barra.width - 6) * progresso_total)
+    pygame.draw.rect(tela, (86, 158, 102), preenchida, border_radius=6)
+    
+    # Percentage text
+    pct = fonte_txt.render(f"{int(progresso_total * 100)}%", True, (244, 236, 216))
+    tela.blit(pct, pct.get_rect(center=barra.center))
+    
+    # Current stage
+    etapa_txt = etapas[indice_etapa] if indice_etapa < len(etapas) else "Finalizando..."
+    tela.blit(fonte_txt.render(etapa_txt, True, (74, 54, 40)), (painel.x + 24, painel.y + 146))
+    
+    # Loading indicator (animated dots)
+    num_pontos = 3
+    pontos_atuais = (int(time.time() * 3) % (num_pontos + 1))
+    indicador = "●" * pontos_atuais + "○" * (num_pontos - pontos_atuais)
+    tela.blit(fonte_pequena.render(indicador, True, (146, 110, 78)), (painel.right - 80, painel.y + 146))
+    
+    # Loading steps
+    area_etapas = pygame.Rect(painel.x + 24, painel.y + 190, painel.width - 48, painel.height - 220)
+    pygame.draw.rect(tela, (236, 224, 194), area_etapas, border_radius=10)
+    
+    for i, etapa in enumerate(etapas[-5:]):  # Show last 5 steps
+        y_pos = area_etapas.y + 12 + (i % 5) * 28
+        if y_pos + 20 > area_etapas.bottom - 12:
+            break
+        cor = (86, 158, 102) if i < indice_etapa else (122, 110, 98)
+        marca = "✓" if i < indice_etapa else "→" if i == indice_etapa else "○"
+        tela.blit(fonte_pequena.render(f"{marca} {etapa[:60]}", True, cor), (area_etapas.x + 12, y_pos))
+    
+    pygame.display.flip()
+    relogio.tick(60)

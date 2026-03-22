@@ -242,9 +242,30 @@ def rodar() -> None:
     if acao_menu == "carregar" and save_atual:
         print(f"[Sistema] Tentando carregar save: {save_atual}")
         try:
+            from .ui import renderizar_tela_carregamento
+            
+            # Loading stages
+            etapas = [
+                "Carregando arquivos do save...",
+                "Construindo mundo...",
+                "Carregando inventário...",
+                "Carregando NPCs e habitantes...",
+                "Carregando sistemas de jogo...",
+                "Finalizando..."
+            ]
+            
+            # Show loading screen with stages
+            for i, etapa in enumerate(etapas):
+                renderizar_tela_carregamento(tela, relogio, save_atual, etapas, i, 0.5)
+            
             mundo, memoria, _ = carregar_save(save_atual)
             raphael = Raphael(memoria, objetivos)
             tamanho_real = mundo.tamanho
+            
+            # Final loading stage
+            renderizar_tela_carregamento(tela, relogio, save_atual, etapas, len(etapas) - 1, 1.0)
+            time.sleep(0.3)
+            
             print(f"[Save carregado com sucesso: {save_atual}]")
             print(f"[Mundo] Tamanho: {tamanho_real}x{tamanho_real}")
             print(f"[Personagem] Nome: {mundo.nome_humano} | Idade: {mundo.idade_humano}")
