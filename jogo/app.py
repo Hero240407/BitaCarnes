@@ -499,6 +499,54 @@ def rodar() -> None:
                     tile_x = camera_x + int(mouse_x // TAMANHO_CELULA)
                     tile_y = camera_y + int(mouse_y // TAMANHO_CELULA)
                     mundo.definir_direcao_olhar_por_tile(tile_x, tile_y)
+            elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                # Handle pause menu mouse clicks
+                if menu_aberto == "pausa":
+                    mouse_pos = evento.pos
+                    # Calculate button positions (matching renderizar_menu_pausa)
+                    tela_width = tela.get_width()
+                    tela_height = tela.get_height()
+                    area_x = tela_width // 2 - 220
+                    area_y = tela_height // 2 - 200
+                    
+                    botao_altura = 50
+                    botao_largura = 340
+                    espaco = 8
+                    inicio_y = area_y + 80
+                    
+                    for i in range(6):
+                        botao = pygame.Rect(
+                            area_x + (440 - botao_largura) // 2,
+                            inicio_y + i * (botao_altura + espaco),
+                            botao_largura,
+                            botao_altura
+                        )
+                        if botao.collidepoint(mouse_pos):
+                            opcao_pausa_selecionada = i
+                            # Execute the selected option
+                            if i == 0:  # Retomar Jogo
+                                menu_aberto = None
+                                pausado = False
+                            elif i == 1:  # Salvar e Continuar
+                                nome_final = salvar_jogo(save_atual, mundo, memoria, {"tick": tick, "timestamp": time.time(), "versao": 1})
+                                save_atual = nome_final
+                                historico_chat.append(f"Sistema: save '{nome_final}' gravado")
+                                menu_aberto = None
+                                pausado = False
+                            elif i == 2:  # Salvar Como Novo Save
+                                modo_input = "salvar_como"
+                                texto_input = ""
+                                menu_aberto = None
+                            elif i == 3:  # Mudar Configuracoes
+                                menu_aberto = "configuracoes"
+                                pausado = True
+                                opcao_config_selecionada = 0
+                            elif i == 4:  # Voltar ao Menu
+                                modo_input = None
+                                rodando = False
+                            elif i == 5:  # Sair do Jogo
+                                rodando = False
+                            break
             elif evento.type == pygame.KEYDOWN:
                 agora = time.time()
                 
@@ -508,6 +556,8 @@ def rodar() -> None:
                         menu_aberto = None
                         pausado = False
                         continue
+                    
+                    # Mouse click handling for pause menu
                     elif evento.key == pygame.K_UP and agora - ultimo_tempo_menu_nav > 0.15:
                         opcao_pausa_selecionada = (opcao_pausa_selecionada - 1) % 6
                         ultimo_tempo_menu_nav = agora
@@ -1443,7 +1493,7 @@ def rodar() -> None:
         elif menu_aberto == "lore":
             renderizar_menu_lore(tela, mundo, memoria)
         elif menu_aberto == "pausa":
-            renderizar_menu_pausa(tela, mundo, opcao_pausa_selecionada, tempo_sistema, historico_chat)
+            renderizar_menu_pausa(tela, mundo, opcao_pausa_selecionada, tempo_sistema, historico_chat, mouse_pos=pygame.mouse.get_pos())
         elif menu_aberto == "configuracoes":
             renderizar_menu_configuracoes(tela, cfg, opcao_config_selecionada, gerenciador_som)
         elif menu_aberto == "equipamento" and renderizar_menu_equipamento:

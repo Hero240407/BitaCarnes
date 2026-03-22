@@ -382,10 +382,14 @@ def renderizar_menu_pausa(
     opcao_selecionada: int = 0,
     tempo_sistema=None,
     historico_chat=None,
+    mouse_pos: tuple[int, int] | None = None,
 ) -> None:
     """Renderiza menu de pausa (ESC) com opcoes."""
     assets = obter_assets()
     fonte_texto, fonte_titulo, fonte_subtitulo, _ = _fontes()
+    
+    if mouse_pos is None:
+        mouse_pos = pygame.mouse.get_pos()
     
     # Escurecer fundo
     overlay = pygame.Surface((tela.get_width(), tela.get_height()), pygame.SRCALPHA)
@@ -426,7 +430,9 @@ def renderizar_menu_pausa(
             botao_altura
         )
         
-        ativo = (i == opcao_selecionada)
+        # Check if mouse is hovering or option is selected
+        is_hovered = botao.collidepoint(mouse_pos)
+        ativo = (i == opcao_selecionada or is_hovered)
         cor_fundo = (184, 100, 60) if ativo else (146, 98, 70)
         cor_texto = (245, 233, 210) if ativo else (200, 170, 140)
         
@@ -436,7 +442,7 @@ def renderizar_menu_pausa(
         texto = fonte_titulo.render(opcao_texto, True, cor_texto)
         tela.blit(texto, (botao.centerx - texto.get_width() // 2, botao.centery - texto.get_height() // 2))
     
-    instrucoes = "Use Setas para navegar | ENTER para selecionar | ESC para cancelar"
+    instrucoes = "Use Setas para navegar | ENTER para selecionar | ESC para cancelar | MOUSE para clicar"
     tela.blit(fonte_texto.render(instrucoes, True, (112, 74, 48)), (area.x + 16, area.bottom - 32))
 
 
