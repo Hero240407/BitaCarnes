@@ -368,6 +368,10 @@ def rodar() -> None:
     # Sound/Music System
     gerenciador_som = GerenciadorSom()
     gerenciador_efeitos = GerenciadorEfeitosSonoros()
+    # Apply volume from config
+    volume_config = cfg.get("volume_master", 80) / 100.0
+    if hasattr(gerenciador_som, 'definir_volume'):
+        gerenciador_som.definir_volume(volume_config)
     print("[Sistema] Sound Manager carregado")
 
     # === Novos Sistemas Integrados ===

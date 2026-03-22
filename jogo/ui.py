@@ -881,7 +881,7 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                         for rect_botao, campo in rects_botoes_config:
                             if rect_botao.collidepoint(mouse_pos):
                                 avancar_cfg(campo, 1)  # Click advances the option
-                                aplicar_cfg_instante(campo)
+                                aplicar_cfg_instante(campo)  # This saves the config
                 
                 if evento.type == pygame.KEYDOWN:
                     if estado == "menu":
@@ -1006,11 +1006,76 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 tela.blit(fonte_texto.render(linha, True, (230, 214, 190)), (topo.x + 28, topo.y + 52 + i * 20))
 
             painel_y = quadro.y + 132
-            painel_altura = max(360, quadro.bottom - painel_y - 12)
+            painel_altura = max(240, quadro.bottom - painel_y - 130)  # Reduced more to make room for help+buttons panel
             painel_esquerdo = pygame.Rect(quadro.x + 26, painel_y, 290, painel_altura)
             painel_direito = pygame.Rect(quadro.x + 334, painel_y, quadro.right - (quadro.x + 334) - 26, painel_altura)
             assets.painel(tela, painel_esquerdo, estilo="brown", inset=True, alpha=234)
             assets.painel(tela, painel_direito, estilo="beige", inset=True, alpha=234)
+            
+            # Create help panel at the bottom with space for buttons
+            help_panel_y = painel_esquerdo.bottom + 12
+            help_panel = pygame.Rect(quadro.x + 26, help_panel_y, quadro.width - 52, quadro.bottom - help_panel_y - 12)
+            assets.painel(tela, help_panel, estilo="brown", inset=True, alpha=220)
+            
+            # Render help text and action buttons in the bottom panel
+            help_x = help_panel.x + 16
+            help_y = help_panel.y + 10
+            buttons_y = help_y + 45  # Space for help text (2 lines * 22 + padding)
+            
+            # Generate help text based on current state
+            ajuda_linhas = []
+            action_buttons = []  # Will store button rects and actions
+            
+            if estado == "menu":
+                ajuda_linhas = [
+                    "Setas/W-S: navegar | ENTER: confirmar | ESC: sair",
+                    "SPACE: renderizar heroi aleatorio | MOUSE: clicar",
+                ]
+            elif estado == "novo_nome":
+                ajuda_linhas = [
+                    "SPACE: novo heroi | ENTER: iniciar campanha | ESC: volta",
+                    "TYPE: nome do personagem (max 28 caracteres)",
+                ]
+            elif estado == "carregar":
+                if saves:
+                    ajuda_linhas = [
+                        "Setas/W-S: navegar | D: deletar | R: renomear | MOUSE: clicar",
+                        "ENTER: carregar save | ESC: volta ao menu",
+                    ]
+                else:
+                    ajuda_linhas = [
+                        "R ou ENTER: recarregar | ESC: volta ao menu",
+                    ]
+            elif estado == "renomear":
+                ajuda_linhas = [
+                    "TYPE: novo nome | ENTER: confirmar | ESC: cancelar",
+                    "BACKSPACE: apagar caractere | MAX 40 caracteres",
+                ]
+            else:  # config
+                ajuda_linhas = [
+                    "Setas/W-S: navegar | LEFT/RIGHT para mudar | MOUSE: clicar",
+                    "ENTER: salvar e voltar | ESC: voltar sem salvar",
+                ]
+            
+            # Render help text
+            for i, linha in enumerate(ajuda_linhas):
+                fonte_ajuda = pygame.font.SysFont("constantia", 14)
+                texto_ajuda = fonte_ajuda.render(linha, True, (240, 225, 200))
+                tela.blit(texto_ajuda, (help_x, help_y + i * 22))
+            
+            # Render action buttons in help panel if in carregar state with saves
+            if estado == "carregar" and saves:
+                # Delete and Rename buttons in the help panel
+                btn_width = (help_panel.width - 48) // 2 - 4
+                btn_height = 32
+                rect_botao_delete = pygame.Rect(help_panel.x + 16, buttons_y, btn_width, btn_height)
+                rect_botao_rename = pygame.Rect(help_panel.x + 16 + btn_width + 8, buttons_y, btn_width, btn_height)
+                
+                delete_hovered = rect_botao_delete.collidepoint(mouse_pos_atual)
+                rename_hovered = rect_botao_rename.collidepoint(mouse_pos_atual)
+                
+                assets.botao(tela, rect_botao_delete, fonte_texto, "Deletar (D)", ativo=delete_hovered)
+                assets.botao(tela, rect_botao_rename, fonte_texto, "Renomear (R)", ativo=rename_hovered)
 
             if estado == "menu":
                 tela.blit(fonte_subtitulo.render("Escolha seu caminho", True, (245, 232, 206)), (painel_esquerdo.x + 20, painel_esquerdo.y + 24))
@@ -1027,17 +1092,6 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                         cursor = assets.icone("cursorSword_gold.png", (28, 28))
                         tela.blit(cursor, (rect_botao.x - 16, rect_botao.y + 10))
 
-                dicas_linhas = [
-                    "Setas/W-S: navegar",
-                    "ENTER: confirmar",
-                    "Novo jogo: heroi aleatorio",
-                ]
-                dica_y = botao_y_base + len(opcoes) * botao_passo + 10
-                espaco_dicas = painel_esquerdo.bottom - 14 - dica_y
-                max_linhas_dicas = max(1, espaco_dicas // 22)
-                for i, linha in enumerate(dicas_linhas[:max_linhas_dicas]):
-                    tela.blit(fonte_texto.render(linha, True, (231, 214, 190)), (painel_esquerdo.x + 22, dica_y + i * 22))
-
                 titulo_preview = "Estilo Atual"
             elif estado == "novo_nome":
                 titulo_preview = "Heroi Gerado"
@@ -1047,14 +1101,6 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 tela.blit(fonte_texto.render("Nome do save", True, (245, 232, 206)), (campo.x + 8, campo.y - 22))
                 valor = fonte_titulo.render((texto_nome + "_")[:28], True, (88, 58, 40))
                 tela.blit(valor, (campo.x + 14, campo.y + 18))
-
-                dicas = [
-                    "ENTER inicia a campanha",
-                    "SPACE gera outro heroi aleatorio",
-                    "ESC volta ao menu",
-                ]
-                for i, linha in enumerate(dicas):
-                    tela.blit(fonte_texto.render(linha, True, (231, 214, 190)), (painel_esquerdo.x + 22, painel_esquerdo.y + 170 + i * 26))
             elif estado == "carregar":
                 titulo_preview = "Saves"
                 tela.blit(fonte_subtitulo.render("Escolha uma cronica salva", True, (245, 232, 206)), (painel_esquerdo.x + 20, painel_esquerdo.y + 22))
@@ -1115,11 +1161,33 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                     idx_absoluto = inicio + linha_idx
                     rect_botao = pygame.Rect(painel_esquerdo.x + 18, lista_topo + linha_idx * passo, 248, altura_botao)
                     is_hovered = rect_botao.collidepoint(mouse_pos_atual)
-                    assets.botao(tela, rect_botao, fonte_cfg, f"{nomes[campo]}: {valores[campo]}", ativo=(idx_absoluto == idx_cfg or is_hovered))
+                    
+                    # Special rendering for volume slider
+                    if campo == "volume_master":
+                        # Draw button background
+                        cor_botao = (184, 100, 60) if idx_absoluto == idx_cfg else (122, 94, 70)
+                        cor_texto = (245, 233, 210) if idx_absoluto == idx_cfg else (200, 170, 140)
+                        pygame.draw.rect(tela, cor_botao, rect_botao, border_radius=6)
+                        pygame.draw.rect(tela, (245, 233, 210) if is_hovered or idx_absoluto == idx_cfg else (112, 74, 48), rect_botao, 2, border_radius=6)
+                        
+                        # Draw slider area
+                        slider_rect = pygame.Rect(rect_botao.x + 8, rect_botao.y + 4, rect_botao.width - 16, rect_botao.height - 8)
+                        pygame.draw.rect(tela, (98, 74, 58), slider_rect, border_radius=4)
+                        
+                        # Draw filled portion
+                        volume = config.get("volume_master", 80)
+                        fill_width = int((slider_rect.width - 4) * (volume / 100.0))
+                        fill_rect = pygame.Rect(slider_rect.x + 2, slider_rect.y + 2, fill_width, slider_rect.height - 4)
+                        pygame.draw.rect(tela, (86, 158, 102), fill_rect, border_radius=3)
+                        
+                        # Draw label + percentage
+                        label = f"{nomes[campo]}: {valores[campo]}"
+                        texto = fonte_cfg.render(label, True, cor_texto)
+                        tela.blit(texto, (rect_botao.centerx - texto.get_width() // 2, rect_botao.centery - texto.get_height() // 2))
+                    else:
+                        assets.botao(tela, rect_botao, fonte_cfg, f"{nomes[campo]}: {valores[campo]}", ativo=(idx_absoluto == idx_cfg or is_hovered))
+                    
                     rects_botoes_config.append((rect_botao, campo))
-
-                dica_cfg = "A/D altera | ENTER salva | ESC volta"
-                tela.blit(fonte_texto.render(dica_cfg, True, (231, 214, 190)), (painel_esquerdo.x + 18, painel_esquerdo.bottom - 30))
 
             tela.blit(fonte_subtitulo.render(titulo_preview, True, (84, 62, 46)), (painel_direito.x + 20, painel_direito.y + 18))
 
@@ -1149,29 +1217,6 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 assets.painel(tela, origem_bloco, estilo="beige", inset=True, alpha=238)
                 for i, linha in enumerate(linhas_origem[:max(2, (origem_bloco.height - 18) // 22)]):
                     tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (origem_bloco.x + 12, origem_bloco.y + 12 + i * 22))
-                
-                # Action buttons
-                botao_delete_y = painel_direito.bottom - 50
-                rect_botao_delete = pygame.Rect(painel_direito.x + 20, botao_delete_y, (painel_direito.width - 40) // 2 - 6, 36)
-                rect_botao_rename = pygame.Rect(painel_direito.x + 20 + (painel_direito.width - 40) // 2 + 6, botao_delete_y, (painel_direito.width - 40) // 2 - 6, 36)
-                
-                delete_hovered = rect_botao_delete.collidepoint(mouse_pos_atual)
-                rename_hovered = rect_botao_rename.collidepoint(mouse_pos_atual)
-                
-                assets.botao(tela, rect_botao_delete, fonte_texto, "Deletar (D)", ativo=delete_hovered)
-                assets.botao(tela, rect_botao_rename, fonte_texto, "Renomear (R)", ativo=rename_hovered)
-                
-                # Tips
-                dicas_carregar = [
-                    "UP/DOWN: navegar",
-                    "ENTER: carregar",
-                    "D: deletar save",
-                    "R: renomear save",
-                    "ESC: voltar",
-                ]
-                dica_y = botao_delete_y - 100
-                for i, linha in enumerate(dicas_carregar[:3]):
-                    tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, dica_y + i * 18))
             
             elif estado == "carregar" and not saves:
                 # No saves found
@@ -1189,10 +1234,6 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 reload_hovered = rect_reload.collidepoint(mouse_pos_atual)
                 assets.botao(tela, rect_reload, fonte_texto, "Recarregar (R)", ativo=reload_hovered)
                 rects_botoes_saves = [(rect_reload, "reload")]
-                
-                # Tips
-                dica_reload = "R ou ENTER: recarregar | ESC: voltar"
-                tela.blit(fonte_texto.render(dica_reload, True, (102, 74, 56)), (painel_direito.x + 20, painel_direito.bottom - 30))
             
             elif estado == "renomear":
                 # Rename interface
@@ -1203,13 +1244,6 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 tela.blit(fonte_texto.render("Novo nome", True, (86, 60, 44)), (campo.x + 8, campo.y - 22))
                 valor = fonte_titulo.render((texto_nome + "_")[:40], True, (88, 58, 40))
                 tela.blit(valor, (campo.x + 14, campo.y + 18))
-                
-                dicas = [
-                    "ENTER: confirmar rename",
-                    "ESC: cancelar",
-                ]
-                for i, linha in enumerate(dicas):
-                    tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, painel_direito.y + 170 + i * 26))
             
             else:
                 # Show character preview
@@ -1236,7 +1270,7 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                     tela.blit(fonte_titulo.render(linha, True, (92, 58, 40)), (painel_direito.x + 176, painel_direito.y + 70 + i * 28))
                 tela.blit(fonte_texto.render(f"{idade} anos | {papel}", True, (114, 78, 58)), (painel_direito.x + 176, painel_direito.y + 70 + len(linhas_nome) * 28))
 
-                rodape = "Herois, NPCs e retratos usam composicao aleatoria com sprites do Mana Seed Farmer."
+                rodape = ""
                 rodape_linhas = quebrar_texto(fonte_texto, rodape, painel_direito.width - 42)[:2]
                 rodape_y = painel_direito.bottom - 48
                 bloco_historia = pygame.Rect(
@@ -1328,7 +1362,7 @@ def renderizar_tela_carregamento(
     # Loading indicator (animated dots)
     num_pontos = 3
     pontos_atuais = (int(time.time() * 3) % (num_pontos + 1))
-    indicador = "●" * pontos_atuais + "○" * (num_pontos - pontos_atuais)
+    indicador = "*" * pontos_atuais + "-" * (num_pontos - pontos_atuais)
     tela.blit(fonte_pequena.render(indicador, True, (146, 110, 78)), (painel.right - 80, painel.y + 146))
     
     # Loading steps
@@ -1340,8 +1374,8 @@ def renderizar_tela_carregamento(
         if y_pos + 20 > area_etapas.bottom - 12:
             break
         cor = (86, 158, 102) if i < indice_etapa else (122, 110, 98)
-        marca = "✓" if i < indice_etapa else "→" if i == indice_etapa else "○"
-        tela.blit(fonte_pequena.render(f"{marca} {etapa[:60]}", True, cor), (area_etapas.x + 12, y_pos))
+        marca = "[X]" if i < indice_etapa else "[>]" if i == indice_etapa else "[ ]"
+        tela.blit(fonte_pequena.render(f"{marca} {etapa[:54]}", True, cor), (area_etapas.x + 12, y_pos))
     
     pygame.display.flip()
     relogio.tick(60)

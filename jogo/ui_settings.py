@@ -46,7 +46,7 @@ def renderizar_menu_configuracoes(
         f"Mostrar FPS: {'Sim' if mostrar_fps else 'Não'}",
         f"Vibração Tela: {'Ativada' if vibracao else 'Desativada'}",
         f"Dicas Contextuais: {'Ativadas' if dicas else 'Desativadas'}",
-        "← Voltar",
+        "< Voltar",
     ]
     
     botao_altura = 45
@@ -74,12 +74,12 @@ def renderizar_menu_configuracoes(
         
         # Mostrar dica para volume
         if i == 0 and ativo:
-            dica = "← Reduzir | Aumentar →"
+            dica = "< Reduzir | Aumentar >"
             txt_dica = fonte_texto.render(dica, True, (112, 74, 48))
             tela.blit(txt_dica, (botao.right + 10, botao.centery - txt_dica.get_height() // 2))
     
     # Rodapé
-    instrucoes = "↑↓ Navegar | ← → Ajustar | ENTER Alternar | ESC Cancelar"
+    instrucoes = "UP/DOWN Navegar | LEFT/RIGHT Ajustar | ENTER Alternar | ESC Cancelar"
     txt_inst = fonte_texto.render(instrucoes, True, (112, 74, 48))
     tela.blit(txt_inst, (area.centerx - txt_inst.get_width() // 2, area.bottom - 30))
 

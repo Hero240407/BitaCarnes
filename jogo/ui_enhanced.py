@@ -184,7 +184,7 @@ def renderizar_quests_painel(tela: pygame.Surface, quest_manager: QuestManager,
     y = rect.y + 35
     for quest in quests_ativas:
         # Nome da quest
-        texto_nome = fonte_normal.render(f"▶ {quest.nome}", True, (200, 220, 100))
+        texto_nome = fonte_normal.render(f"> {quest.nome}", True, (200, 220, 100))
         tela.blit(texto_nome, (rect.x + 15, y))
         y += 15
         
