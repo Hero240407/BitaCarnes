@@ -658,12 +658,112 @@ def normalizar_nome_save(nome: str) -> str:
 def listar_saves() -> list[str]:
     SAVE_DIR.mkdir(exist_ok=True)
     nomes = set()
+    # Look for .json save files (but exclude configuracoes)
     for p in SAVE_DIR.glob("*.json"):
-        nomes.add(p.stem)
+        if p.stem.lower() != "configuracoes":
+            nomes.add(p.stem)
+    # Look for save directories with game data
     for d in SAVE_DIR.iterdir():
-        if d.is_dir() and (d / "meta.json").exists():
-            nomes.add(d.name)
+        if d.is_dir() and d.name != "__pycache__":
+            # Recognize as save if it has meta.json, mundo.json, or player_history.db
+            if (d / "meta.json").exists() or (d / "mundo.json").exists() or (d / "player_history.db").exists():
+                nomes.add(d.name)
     return sorted(list(nomes), key=str.lower)
+
+
+def obter_info_save(nome_save: str) -> dict:
+    """Get world info from a save without loading the entire world."""
+    nome_norm = normalizar_nome_save(nome_save)
+    pasta = SAVE_DIR / nome_norm
+    info = {
+        "nome": nome_save,
+        "personagem": "Desconhecido",
+        "idade": 0,
+        "origem": "Origem desconhecida",
+        "tamanho_mundo": 0,
+        "timestamp": 0,
+    }
+    
+    if pasta.exists() and pasta.is_dir():
+        # Try to load meta.json
+        meta_file = pasta / "meta.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                info["timestamp"] = meta.get("timestamp", 0)
+                info["personagem"] = meta.get("personagem", "Desconhecido")
+                info["idade"] = meta.get("idade", 0)
+                info["origem"] = meta.get("origem", "Origem desconhecida")
+            except Exception:
+                pass
+        
+        # Try to load mundo.json for world size
+        mundo_file = pasta / "mundo.json"
+        if mundo_file.exists():
+            try:
+                mundo_dados = json.loads(mundo_file.read_text(encoding="utf-8"))
+                info["tamanho_mundo"] = mundo_dados.get("tamanho", 0)
+            except Exception:
+                pass
+    
+    return info
+
+
+def deletar_save(nome_save: str) -> bool:
+    """Delete a save game."""
+    nome_norm = normalizar_nome_save(nome_save)
+    pasta = SAVE_DIR / nome_norm
+    
+    if pasta.exists():
+        import shutil
+        try:
+            shutil.rmtree(pasta)
+            return True
+        except Exception:
+            return False
+    
+    # Also try to delete .json file if it exists
+    arquivo = SAVE_DIR / f"{nome_norm}.json"
+    if arquivo.exists():
+        try:
+            arquivo.unlink()
+            return True
+        except Exception:
+            return False
+    
+    return False
+
+
+def renomear_save(nome_antigo: str, nome_novo: str) -> bool:
+    """Rename a save game."""
+    nome_antigo_norm = normalizar_nome_save(nome_antigo)
+    nome_novo_norm = normalizar_nome_save(nome_novo)
+    
+    pasta_antiga = SAVE_DIR / nome_antigo_norm
+    pasta_nova = SAVE_DIR / nome_novo_norm
+    
+    if pasta_nova.exists():
+        return False  # New name already exists
+    
+    if pasta_antiga.exists() and pasta_antiga.is_dir():
+        try:
+            pasta_antiga.rename(pasta_nova)
+            return True
+        except Exception:
+            return False
+    
+    # Also try .json files
+    arquivo_antigo = SAVE_DIR / f"{nome_antigo_norm}.json"
+    arquivo_novo = SAVE_DIR / f"{nome_novo_norm}.json"
+    
+    if arquivo_antigo.exists():
+        try:
+            arquivo_antigo.rename(arquivo_novo)
+            return True
+        except Exception:
+            return False
+    
+    return False
 
 
 def salvar_jogo(nome_save: str, mundo: Mundo, memoria: MemoriaRaphael, meta: dict) -> str:

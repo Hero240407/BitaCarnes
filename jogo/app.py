@@ -476,6 +476,17 @@ def rodar() -> None:
     # Começar música do jogo
     gerenciador_som.tocar_musica(MusicaContexto.EXPLORAR, fade_in=False)
 
+    # Auto-save on game start
+    print(f"[Auto-save] Salvando mundo inicial: {save_atual}")
+    salvar_jogo(save_atual, mundo, memoria, {
+        "tick": tick,
+        "timestamp": time.time(),
+        "versao": 1,
+        "personagem": mundo.nome_humano,
+        "idade": mundo.idade_humano,
+        "origem": mundo.origem_humano
+    })
+
     while rodando and mundo.hp > 0:
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:

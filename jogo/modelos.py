@@ -3,7 +3,6 @@ import time
 
 from .config import DIRECOES
 from .personagens import obter_banco_personagens
-from .npc_relations import ComportamentoNPC
 from .sociedade import (
     PAPEIS_NPC,
     PLANTAS_DISPONIVEIS,
@@ -148,7 +147,7 @@ class Mundo:
         self.npc_proximo_movimento: dict[str, float] = {}  # Time until next movement
         
         # NPC Behavior System (AI-driven routines)
-        self.npc_comportamento: dict[str, ComportamentoNPC] = {}  # AI behavior for each NPC
+        self.npc_comportamento: dict[str, "ComportamentoNPC"] = {}  # AI behavior for each NPC
 
         self.world_lore = gerar_lore_mundo(self.nome_humano)
         self.ano_base = int(self.world_lore.get("era_inicial", 1500))

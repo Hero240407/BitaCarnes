@@ -11,7 +11,7 @@ from .assets import obter_assets
 from .config import ALTURA_CHAT, ALTURA_HUD, COR_AVISO, COR_TEXTO, TAMANHO_CELULA
 from .opcoes import RESOLUCOES, carregar_configuracoes, escolher_display_para_config, resolucao_atual, salvar_configuracoes
 from .personagens import obter_banco_personagens
-from .servicos import aplicar_lore_personagem, enriquecer_lore_personagem_base, listar_saves, normalizar_lore_personagem, perfil_tem_lore_enriquecida
+from .servicos import aplicar_lore_personagem, enriquecer_lore_personagem_base, listar_saves, normalizar_lore_personagem, perfil_tem_lore_enriquecida, obter_info_save, deletar_save, renomear_save
 
 # Sprite system imports
 try:
@@ -748,6 +748,16 @@ def menu_inicial() -> tuple[str, dict | str | None]:
 
     preview = iniciar_preview_lore()
     tick_animacao = 0
+    
+    # Store button rects for mouse click detection
+    rects_botoes_menu: list[tuple[pygame.Rect, str]] = []
+    rects_botoes_saves: list[tuple[pygame.Rect, int]] = []  # Save buttons indexed by save index
+    rects_botoes_config: list[tuple[pygame.Rect, str]] = []  # Config buttons indexed by field name
+    rect_botao_delete: pygame.Rect | None = None
+    rect_botao_rename: pygame.Rect | None = None
+    
+    # Get mouse position for hover effects
+    mouse_pos_atual = (0, 0)
     campos_cfg = ["resolucao"]
     if len(pygame.display.get_desktop_sizes()) > 1:
         campos_cfg.append("monitor_index")
@@ -807,6 +817,60 @@ def menu_inicial() -> tuple[str, dict | str | None]:
             for evento in pygame.event.get():
                 if evento.type == pygame.QUIT:
                     return "sair", None
+                
+                # Track mouse position for hover effects
+                if evento.type == pygame.MOUSEMOTION:
+                    mouse_pos_atual = evento.pos
+                
+                if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                    mouse_pos = evento.pos
+                    
+                    if estado == "menu":
+                        for rect_botao, opcao in rects_botoes_menu:
+                            if rect_botao.collidepoint(mouse_pos):
+                                if opcao == "Novo Jogo":
+                                    estado = "novo_nome"
+                                    texto_nome = ""
+                                    preview = iniciar_preview_lore()
+                                elif opcao == "Carregar Save":
+                                    saves = listar_saves()
+                                    if saves:
+                                        idx_save = 0
+                                        estado = "carregar"
+                                elif opcao == "Configuracoes":
+                                    estado = "config"
+                                elif opcao == "Sair":
+                                    return "sair", None
+                    
+                    elif estado == "carregar":
+                        # Check save buttons
+                        for rect_botao, save_idx in rects_botoes_saves:
+                            if rect_botao.collidepoint(mouse_pos):
+                                idx_save = save_idx
+                                return "carregar", saves[idx_save]
+                        
+                        # Check delete button
+                        if rect_botao_delete and rect_botao_delete.collidepoint(mouse_pos):
+                            nome_delete = saves[idx_save]
+                            if deletar_save(nome_delete):
+                                saves = listar_saves()
+                                if saves:
+                                    idx_save = min(idx_save, len(saves) - 1)
+                                else:
+                                    estado = "menu"
+                        
+                        # Check rename button
+                        if rect_botao_rename and rect_botao_rename.collidepoint(mouse_pos):
+                            estado = "renomear"
+                            texto_nome = saves[idx_save]
+                    
+                    elif estado == "config":
+                        # Check config buttons
+                        for rect_botao, campo in rects_botoes_config:
+                            if rect_botao.collidepoint(mouse_pos):
+                                avancar_cfg(campo, 1)  # Click advances the option
+                                aplicar_cfg_instante(campo)
+                
                 if evento.type == pygame.KEYDOWN:
                     if estado == "menu":
                         if evento.key in {pygame.K_UP, pygame.K_w}:
@@ -851,6 +915,19 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                             idx_save = (idx_save + 1) % len(saves)
                         elif evento.key == pygame.K_RETURN and saves:
                             return "carregar", saves[idx_save]
+                        elif evento.key in {pygame.K_d} and saves:
+                            # Delete save
+                            nome_delete = saves[idx_save]
+                            if deletar_save(nome_delete):
+                                saves = listar_saves()
+                                if saves:
+                                    idx_save = min(idx_save, len(saves) - 1)
+                                else:
+                                    estado = "menu"
+                        elif evento.key in {pygame.K_r} and saves:
+                            # Rename save
+                            estado = "renomear"
+                            texto_nome = saves[idx_save]
                     elif estado == "config":
                         if evento.key == pygame.K_ESCAPE:
                             salvar_configuracoes(config)
@@ -870,6 +947,21 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                         elif evento.key == pygame.K_RETURN:
                             salvar_configuracoes(config)
                             estado = "menu"
+                    elif estado == "renomear":
+                        if evento.key == pygame.K_ESCAPE:
+                            estado = "carregar"
+                        elif evento.key == pygame.K_RETURN:
+                            novo_nome = texto_nome.strip()
+                            nome_antigo = saves[idx_save]
+                            if novo_nome and novo_nome != nome_antigo:
+                                if renomear_save(nome_antigo, novo_nome):
+                                    saves = listar_saves()
+                                    idx_save = saves.index(novo_nome) if novo_nome in saves else 0
+                            estado = "carregar"
+                        elif evento.key == pygame.K_BACKSPACE:
+                            texto_nome = texto_nome[:-1]
+                        elif evento.unicode and evento.unicode.isprintable() and len(texto_nome) < 50:
+                            texto_nome += evento.unicode
 
             tick_animacao += 1
             _desenhar_fundo_mistico(tela, tick_animacao)
@@ -903,9 +995,12 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 botao_y_base = painel_esquerdo.y + 72
                 botao_altura = 46
                 botao_passo = 64
+                rects_botoes_menu = []
                 for i, opcao in enumerate(opcoes):
                     rect_botao = pygame.Rect(painel_esquerdo.x + 20, botao_y_base + i * botao_passo, 246, botao_altura)
-                    assets.botao(tela, rect_botao, fonte_titulo, opcao, ativo=i == idx)
+                    is_hovered = rect_botao.collidepoint(mouse_pos_atual)
+                    assets.botao(tela, rect_botao, fonte_titulo, opcao, ativo=(i == idx or is_hovered))
+                    rects_botoes_menu.append((rect_botao, opcao))
                     if i == idx:
                         cursor = assets.icone("cursorSword_gold.png", (28, 28))
                         tela.blit(cursor, (rect_botao.x - 16, rect_botao.y + 10))
@@ -941,9 +1036,12 @@ def menu_inicial() -> tuple[str, dict | str | None]:
             elif estado == "carregar":
                 titulo_preview = "Saves"
                 tela.blit(fonte_subtitulo.render("Escolha uma cronica salva", True, (245, 232, 206)), (painel_esquerdo.x + 20, painel_esquerdo.y + 22))
+                rects_botoes_saves = []
                 for i, nome in enumerate(saves[:8]):
                     rect_botao = pygame.Rect(painel_esquerdo.x + 18, painel_esquerdo.y + 72 + i * 40, 248, 34)
-                    assets.botao(tela, rect_botao, fonte_texto, nome, ativo=i == idx_save)
+                    is_hovered = rect_botao.collidepoint(mouse_pos_atual)
+                    assets.botao(tela, rect_botao, fonte_texto, nome, ativo=(i == idx_save or is_hovered))
+                    rects_botoes_saves.append((rect_botao, i))
             else:
                 titulo_preview = "Configuracoes"
                 tela.blit(fonte_subtitulo.render("Ajustes do jogo", True, (245, 232, 206)), (painel_esquerdo.x + 20, painel_esquerdo.y + 22))
@@ -990,64 +1088,136 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 fim = min(len(campos_cfg), inicio + max_visiveis)
                 campos_visiveis = campos_cfg[inicio:fim]
 
+                rects_botoes_config = []
                 for linha_idx, campo in enumerate(campos_visiveis):
                     idx_absoluto = inicio + linha_idx
                     rect_botao = pygame.Rect(painel_esquerdo.x + 18, lista_topo + linha_idx * passo, 248, altura_botao)
-                    assets.botao(tela, rect_botao, fonte_cfg, f"{nomes[campo]}: {valores[campo]}", ativo=idx_absoluto == idx_cfg)
+                    is_hovered = rect_botao.collidepoint(mouse_pos_atual)
+                    assets.botao(tela, rect_botao, fonte_cfg, f"{nomes[campo]}: {valores[campo]}", ativo=(idx_absoluto == idx_cfg or is_hovered))
+                    rects_botoes_config.append((rect_botao, campo))
 
                 dica_cfg = "A/D altera | ENTER salva | ESC volta"
                 tela.blit(fonte_texto.render(dica_cfg, True, (231, 214, 190)), (painel_esquerdo.x + 18, painel_esquerdo.bottom - 30))
 
             tela.blit(fonte_subtitulo.render(titulo_preview, True, (84, 62, 46)), (painel_direito.x + 20, painel_direito.y + 18))
 
-            retrato_slot = pygame.Rect(painel_direito.x + 28, painel_direito.y + 60, 122, 160)
-            assets.painel(tela, retrato_slot, estilo="brown")
-            retrato_interno = retrato_slot.inflate(-18, -18)
-            assets.painel(tela, retrato_interno, estilo="beige", inset=True, alpha=240)
-            retrato = banco.retrato(preview, retrato_interno.width - 8, retrato_interno.height - 8, "baixo")
-            tela.blit(retrato, retrato.get_rect(center=retrato_interno.center))
+            if estado == "carregar" and saves:
+                # Show world info for selected save
+                info_save = obter_info_save(saves[idx_save])
+                
+                # World info panel
+                info_y = painel_direito.y + 70
+                info_bloco = pygame.Rect(painel_direito.x + 20, info_y, painel_direito.width - 40, 160)
+                assets.painel(tela, info_bloco, estilo="beige", inset=True, alpha=240)
+                
+                linhas_info = [
+                    f"Nome: {info_save['nome']}",
+                    f"Personagem: {info_save['personagem']}",
+                    f"Idade: {info_save['idade']} anos",
+                    f"Tamanho mundo: {info_save['tamanho_mundo']}x{info_save['tamanho_mundo']}",
+                ]
+                for i, linha in enumerate(linhas_info):
+                    tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (info_bloco.x + 12, info_bloco.y + 12 + i * 28))
+                
+                # Show origin
+                origem = info_save['origem']
+                linhas_origem = quebrar_texto(fonte_texto, f"Origem: {origem}", info_bloco.width - 24)
+                origem_y = info_bloco.bottom + 16
+                origem_bloco = pygame.Rect(painel_direito.x + 20, origem_y, painel_direito.width - 40, max(60, painel_direito.bottom - origem_y - 80))
+                assets.painel(tela, origem_bloco, estilo="beige", inset=True, alpha=238)
+                for i, linha in enumerate(linhas_origem[:max(2, (origem_bloco.height - 18) // 22)]):
+                    tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (origem_bloco.x + 12, origem_bloco.y + 12 + i * 22))
+                
+                # Action buttons
+                botao_delete_y = painel_direito.bottom - 50
+                rect_botao_delete = pygame.Rect(painel_direito.x + 20, botao_delete_y, (painel_direito.width - 40) // 2 - 6, 36)
+                rect_botao_rename = pygame.Rect(painel_direito.x + 20 + (painel_direito.width - 40) // 2 + 6, botao_delete_y, (painel_direito.width - 40) // 2 - 6, 36)
+                
+                delete_hovered = rect_botao_delete.collidepoint(mouse_pos_atual)
+                rename_hovered = rect_botao_rename.collidepoint(mouse_pos_atual)
+                
+                assets.botao(tela, rect_botao_delete, fonte_texto, "Deletar (D)", ativo=delete_hovered)
+                assets.botao(tela, rect_botao_rename, fonte_texto, "Renomear (R)", ativo=rename_hovered)
+                
+                # Tips
+                dicas_carregar = [
+                    "UP/DOWN: navegar",
+                    "ENTER: carregar",
+                    "D: deletar save",
+                    "R: renomear save",
+                    "ESC: voltar",
+                ]
+                dica_y = botao_delete_y - 100
+                for i, linha in enumerate(dicas_carregar[:3]):
+                    tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, dica_y + i * 18))
+            
+            elif estado == "renomear":
+                # Rename interface
+                tela.blit(fonte_subtitulo.render("Renomear Save", True, (245, 232, 206)), (painel_direito.x + 20, painel_direito.y + 30))
+                
+                campo = pygame.Rect(painel_direito.x + 20, painel_direito.y + 80, painel_direito.width - 40, 58)
+                assets.painel(tela, campo, estilo="beige", inset=True, alpha=240)
+                tela.blit(fonte_texto.render("Novo nome", True, (86, 60, 44)), (campo.x + 8, campo.y - 22))
+                valor = fonte_titulo.render((texto_nome + "_")[:40], True, (88, 58, 40))
+                tela.blit(valor, (campo.x + 14, campo.y + 18))
+                
+                dicas = [
+                    "ENTER: confirmar rename",
+                    "ESC: cancelar",
+                ]
+                for i, linha in enumerate(dicas):
+                    tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, painel_direito.y + 170 + i * 26))
+            
+            else:
+                # Show character preview
+                retrato_slot = pygame.Rect(painel_direito.x + 28, painel_direito.y + 60, 122, 160)
+                assets.painel(tela, retrato_slot, estilo="brown")
+                retrato_interno = retrato_slot.inflate(-18, -18)
+                assets.painel(tela, retrato_interno, estilo="beige", inset=True, alpha=240)
+                retrato = banco.retrato(preview, retrato_interno.width - 8, retrato_interno.height - 8, "baixo")
+                tela.blit(retrato, retrato.get_rect(center=retrato_interno.center))
 
-            preview = normalizar_lore_personagem(preview)
-            nome = preview.get("nome", "Heroi")
-            idade = preview.get("idade", 18)
-            origem = preview.get("origem", "Origem desconhecida.")
-            legado = preview.get("legado", "Sem legado conhecido")
-            motivacao = preview.get("motivacao", "Buscar um novo destino")
-            papel = preview.get("papel_social", "andarilho")
-            if preview_lore_future is not None:
-                origem = "Gerando origem unica..."
-                legado = "Tecendo um legado..."
-                motivacao = "Descobrindo um destino..."
-            linhas_nome = quebrar_texto(fonte_titulo, nome, painel_direito.width - 194)[:2]
-            for i, linha in enumerate(linhas_nome):
-                tela.blit(fonte_titulo.render(linha, True, (92, 58, 40)), (painel_direito.x + 176, painel_direito.y + 70 + i * 28))
-            tela.blit(fonte_texto.render(f"{idade} anos | {papel}", True, (114, 78, 58)), (painel_direito.x + 176, painel_direito.y + 70 + len(linhas_nome) * 28))
+                preview = normalizar_lore_personagem(preview)
+                nome = preview.get("nome", "Heroi")
+                idade = preview.get("idade", 18)
+                origem = preview.get("origem", "Origem desconhecida.")
+                legado = preview.get("legado", "Sem legado conhecido")
+                motivacao = preview.get("motivacao", "Buscar um novo destino")
+                papel = preview.get("papel_social", "andarilho")
+                if preview_lore_future is not None:
+                    origem = "Gerando origem unica..."
+                    legado = "Tecendo um legado..."
+                    motivacao = "Descobrindo um destino..."
+                linhas_nome = quebrar_texto(fonte_titulo, nome, painel_direito.width - 194)[:2]
+                for i, linha in enumerate(linhas_nome):
+                    tela.blit(fonte_titulo.render(linha, True, (92, 58, 40)), (painel_direito.x + 176, painel_direito.y + 70 + i * 28))
+                tela.blit(fonte_texto.render(f"{idade} anos | {papel}", True, (114, 78, 58)), (painel_direito.x + 176, painel_direito.y + 70 + len(linhas_nome) * 28))
 
-            rodape = "Herois, NPCs e retratos usam composicao aleatoria com sprites do Mana Seed Farmer."
-            rodape_linhas = quebrar_texto(fonte_texto, rodape, painel_direito.width - 42)[:2]
-            rodape_y = painel_direito.bottom - 48
-            bloco_historia = pygame.Rect(
-                painel_direito.x + 22,
-                painel_direito.y + 246,
-                painel_direito.width - 44,
-                max(120, rodape_y - (painel_direito.y + 246) - 14),
-            )
-            assets.painel(tela, bloco_historia, estilo="beige", inset=True, alpha=238)
+                rodape = "Herois, NPCs e retratos usam composicao aleatoria com sprites do Mana Seed Farmer."
+                rodape_linhas = quebrar_texto(fonte_texto, rodape, painel_direito.width - 42)[:2]
+                rodape_y = painel_direito.bottom - 48
+                bloco_historia = pygame.Rect(
+                    painel_direito.x + 22,
+                    painel_direito.y + 246,
+                    painel_direito.width - 44,
+                    max(120, rodape_y - (painel_direito.y + 246) - 14),
+                )
+                assets.painel(tela, bloco_historia, estilo="beige", inset=True, alpha=238)
 
-            texto_lore = [
-                f"Origem: {origem}",
-                f"Legado: {legado}",
-                f"Motivacao: {motivacao}",
-            ]
-            linhas_origem: list[str] = []
-            for trecho in texto_lore:
-                linhas_origem.extend(quebrar_texto(fonte_texto, trecho, bloco_historia.width - 18))
-            max_linhas_lore = max(3, (bloco_historia.height - 18) // 22)
-            for i, linha in enumerate(linhas_origem[:max_linhas_lore]):
-                tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (bloco_historia.x + 10, bloco_historia.y + 12 + i * 22))
+                texto_lore = [
+                    f"Origem: {origem}",
+                    f"Legado: {legado}",
+                    f"Motivacao: {motivacao}",
+                ]
+                linhas_origem: list[str] = []
+                for trecho in texto_lore:
+                    linhas_origem.extend(quebrar_texto(fonte_texto, trecho, bloco_historia.width - 18))
+                max_linhas_lore = max(3, (bloco_historia.height - 18) // 22)
+                for i, linha in enumerate(linhas_origem[:max_linhas_lore]):
+                    tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (bloco_historia.x + 10, bloco_historia.y + 12 + i * 22))
 
-            for i, linha in enumerate(rodape_linhas):
-                tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, rodape_y + i * 18))
+                for i, linha in enumerate(rodape_linhas):
+                    tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, rodape_y + i * 18))
 
             pygame.display.flip()
             relogio.tick(60)
