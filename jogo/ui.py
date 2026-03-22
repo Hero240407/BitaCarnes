@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 import math
 import time
+from typing import Optional
 
 import pygame
 
@@ -11,6 +12,16 @@ from .config import ALTURA_CHAT, ALTURA_HUD, COR_AVISO, COR_TEXTO, TAMANHO_CELUL
 from .opcoes import RESOLUCOES, carregar_configuracoes, escolher_display_para_config, resolucao_atual, salvar_configuracoes
 from .personagens import obter_banco_personagens
 from .servicos import aplicar_lore_personagem, enriquecer_lore_personagem_base, listar_saves, normalizar_lore_personagem, perfil_tem_lore_enriquecida
+
+# Sprite system imports
+try:
+    from .sprite_renderer import TerrainRenderer, HouseVisualizer
+    from .sprite_system import get_sprite_manager
+    SPRITE_RENDERING_AVAILABLE = True
+except ImportError:
+    SPRITE_RENDERING_AVAILABLE = False
+    TerrainRenderer = None
+    HouseVisualizer = None
 
 
 def calcular_camera(mundo, quadrados_x: int, quadrados_y: int) -> tuple[int, int, int, int]:
@@ -151,6 +162,55 @@ def _desenhar_animal(tela: pygame.Surface, rect: pygame.Rect, especie: str) -> N
     pygame.draw.ellipse(tela, base, corpo)
     pygame.draw.circle(tela, tuple(min(255, c + 28) for c in base), (corpo.right - 4, corpo.y + 7), 5)
     pygame.draw.circle(tela, (30, 24, 22), (corpo.right - 5, corpo.y + 7), 1)
+
+
+# Sprite rendering helper function
+def _renderizar_terreno_com_sprites(tela: pygame.Surface, rect: pygame.Rect, 
+                                    bioma: str, x: int, y: int,
+                                    terrain_renderer: TerrainRenderer) -> bool:
+    """Tenta renderizar terreno com sprites. Retorna True se bem-sucedido."""
+    if not SPRITE_RENDERING_AVAILABLE or terrain_renderer is None:
+        return False
+    
+    try:
+        # Map bioma names to sprite types
+        bioma_map = {
+            "agua": "agua",
+            "montanha": "montanha",
+            "arvore": "floresta",
+            "maldito": "cave",
+            "tesouro": "grass",
+            "comida": "grass",
+            None: "grass",
+        }
+        
+        sprite_bioma = bioma_map.get(bioma, bioma or "grass")
+        terrain_renderer.render_terrain(tela, rect, sprite_bioma, x, y)
+        return True
+    except Exception:
+        return False
+
+
+def _renderizar_celula_fazenda_com_sprites(tela: pygame.Surface, rect: pygame.Rect,
+                                          celula,
+                                          terrain_renderer: TerrainRenderer) -> bool:
+    """Renderiza célula de fazenda com sprites. Retorna True se bem-sucedido."""
+    if not SPRITE_RENDERING_AVAILABLE or terrain_renderer is None:
+        return False
+    
+    try:
+        plant_type = celula.planta_atual.tipo_planta if celula.planta_atual else None
+        growth_stage = celula.planta_atual.estágio_sprite if celula.planta_atual else 0
+        
+        terrain_renderer.render_farm_cell(
+            tela, rect, 
+            celula.sprite_solo,
+            plant_type,
+            growth_stage
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _renderizar_sprite_personagem(
@@ -390,13 +450,20 @@ def renderizar_mundo(
     quadrados_x: int,
     quadrados_y: int,
     modo_escuro: bool = False,
+    terrain_renderer: Optional[TerrainRenderer] = None,
+    use_sprites: bool = True,
 ) -> None:
+    """Renderiza o mundo com suporte opcional a sprites."""
     del fonte_hud, fonte_emoji
     assets = obter_assets()
     fonte_texto, fonte_titulo, _, _ = _fontes()
     tick_visual = int(tempo.segundos_totais * 8)
     largura_tela, altura_tela = tela.get_size()
     _desenhar_fundo_mistico(tela, tick_visual)
+    
+    # Initialize terrain renderer if using sprites
+    if use_sprites and SPRITE_RENDERING_AVAILABLE and terrain_renderer is None:
+        terrain_renderer = TerrainRenderer()
 
     if modo_escuro:
         sombreado = pygame.Surface((largura_tela, altura_tela), pygame.SRCALPHA)

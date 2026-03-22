@@ -3,6 +3,7 @@ import time
 
 from .config import DIRECOES
 from .personagens import obter_banco_personagens
+from .npc_relations import ComportamentoNPC
 from .sociedade import (
     PAPEIS_NPC,
     PLANTAS_DISPONIVEIS,

@@ -43,6 +43,19 @@ class PlantaCultivada:
     def percentual_crescimento(self) -> int:
         """Retorna percentual de crescimento (0-100)"""
         return int((self.dias_crescidos / self.dias_crescimento_total) * 100)
+    
+    @property
+    def estágio_sprite(self) -> int:
+        """Retorna estágio de sprite (0-3) baseado no crescimento"""
+        percent = self.percentual_crescimento
+        if percent < 25:
+            return 0  # Seed
+        elif percent < 50:
+            return 1  # Sprout
+        elif percent < 90:
+            return 2  # Growing
+        else:
+            return 3  # Ready to harvest
 
 
 @dataclass(slots=True)
@@ -55,6 +68,18 @@ class CelulaCultivavel:
     planta_atual: Optional[PlantaCultivada] = None
     tipo_solo: str = "terra"  # terra, areia, lama
     fertilizante_nivel: int = 0  # 0 (nenhum), 1 (básico), 2 (avançado)
+    
+    @property
+    def sprite_solo(self) -> str:
+        """Retorna o tipo de sprite do solo baseado no estado"""
+        if not self.foi_arada:
+            return "untilled"
+        elif self.foi_regada_hoje:
+            return "watered"
+        elif self.planta_atual:
+            return "planted"
+        else:
+            return "tilled"
     
     def aradir(self) -> bool:
         """Prepara solo para plantio"""
