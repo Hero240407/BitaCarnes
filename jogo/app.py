@@ -119,16 +119,16 @@ except ImportError as e:
     ConfiguradorBiomas = None
 
 try:
-    from .animations import GerenciadorAnimacoes
+    from .animations import GerenciadorAnimações
 except ImportError as e:
     print(f"[Aviso] Não foi possível carregar animations.py: {e}")
-    GerenciadorAnimacoes = None
+    GerenciadorAnimações = None
 
 try:
-    from .npc_backstories import GeradorHistoricosIA
+    from .npc_backstories import GeradorBackstoryIA
 except ImportError as e:
     print(f"[Aviso] Não foi possível carregar npc_backstories.py: {e}")
-    GeradorHistoricosIA = None
+    GeradorBackstoryIA = None
 
 
 def _tela_geracao_mundo(tela: pygame.Surface, relogio: pygame.time.Clock, futuro: Future) -> tuple:
@@ -434,15 +434,15 @@ def rodar() -> None:
         configurador_biomas = None
     
     # Animations System
-    if GerenciadorAnimacoes:
-        gerenciador_animacoes = GerenciadorAnimacoes()
+    if GerenciadorAnimações:
+        gerenciador_animacoes = GerenciadorAnimações()
         print("[Sistema] Animation System carregado")
     else:
         gerenciador_animacoes = None
     
     # NPC Backstories
-    if GeradorHistoricosIA:
-        gerador_historicos = GeradorHistoricosIA()
+    if GeradorBackstoryIA:
+        gerador_historicos = GeradorBackstoryIA()
         print("[Sistema] NPC Backstory Generator carregado")
     else:
         gerador_historicos = None

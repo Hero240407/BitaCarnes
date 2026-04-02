@@ -11,7 +11,7 @@ from .assets import obter_assets
 from .config import ALTURA_CHAT, ALTURA_HUD, COR_AVISO, COR_TEXTO, TAMANHO_CELULA
 from .opcoes import RESOLUCOES, carregar_configuracoes, escolher_display_para_config, resolucao_atual, salvar_configuracoes
 from .personagens import obter_banco_personagens
-from .servicos import aplicar_lore_personagem, enriquecer_lore_personagem_base, listar_saves, normalizar_lore_personagem, perfil_tem_lore_enriquecida, obter_info_save, deletar_save, renomear_save
+from .servicos import aplicar_lore_personagem, enriquecer_lore_personagem_base, listar_saves, normalizar_lore_personagem, perfil_tem_lore_enriquecida, obter_info_save, deletar_save, renomear_save, gerar_backstory_completa_jogador_asyncio
 
 # Sprite system imports
 try:
@@ -910,9 +910,30 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                         elif evento.key == pygame.K_SPACE:
                             preview = iniciar_preview_lore()
                         elif evento.key == pygame.K_RETURN:
+                            nome_personagem = texto_nome.strip() or f"herói_{int(pygame.time.get_ticks()) % 10000}"
+                            perfil_base = normalizar_lore_personagem(preview)
+                            
+                            # Tentar gerar backstory complexa se possível
+                            try:
+                                backstory_dados = gerar_backstory_completa_jogador_asyncio(nome_personagem)
+                                if backstory_dados.get("sucesso"):
+                                    # Integrar backstory ao perfil
+                                    perfil_base["backstory_completa"] = backstory_dados.get("backstory_completa", "")
+                                    perfil_base["resumo_backstory"] = backstory_dados.get("resumo", "")
+                                    perfil_base["idade"] = backstory_dados.get("idade", 18)
+                                    perfil_base["motivacao"] = backstory_dados.get("motivacao_principal", perfil_base.get("motivacao", ""))
+                                    perfil_base["segredo"] = backstory_dados.get("segredo", perfil_base.get("segredo", ""))
+                                    perfil_base["spawnpoint_ideal"] = backstory_dados.get("spawnpoint_ideal")
+                                    perfil_base["conexoes_npc"] = backstory_dados.get("conexoes_npc", {})
+                                    perfil_base["habilidade_especial"] = backstory_dados.get("habilidade_especial", "")
+                                    perfil_base["ponto_fraco"] = backstory_dados.get("ponto_fraco", "")
+                                    perfil_base["bioma_origem"] = backstory_dados.get("bioma_origem", "")
+                            except Exception as e:
+                                print(f"[UI] Aviso: Não foi possível gerar backstory complexa: {e}")
+                            
                             return "novo", {
-                                "save_name": texto_nome.strip() or f"cronica_{int(pygame.time.get_ticks())}",
-                                "perfil_jogador": normalizar_lore_personagem(preview),
+                                "save_name": nome_personagem,
+                                "perfil_jogador": perfil_base,
                             }
                         elif evento.key == pygame.K_BACKSPACE:
                             texto_nome = texto_nome[:-1]
@@ -1213,10 +1234,28 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 origem = info_save['origem']
                 linhas_origem = quebrar_texto(fonte_texto, f"Origem: {origem}", info_bloco.width - 24)
                 origem_y = info_bloco.bottom + 16
-                origem_bloco = pygame.Rect(painel_direito.x + 20, origem_y, painel_direito.width - 40, max(60, painel_direito.bottom - origem_y - 80))
+                max_altura_backstory = painel_direito.bottom - origem_y - 80
+                altura_bloco = max(80, max_altura_backstory)
+                origem_bloco = pygame.Rect(painel_direito.x + 20, origem_y, painel_direito.width - 40, altura_bloco)
                 assets.painel(tela, origem_bloco, estilo="beige", inset=True, alpha=238)
-                for i, linha in enumerate(linhas_origem[:max(2, (origem_bloco.height - 18) // 22)]):
-                    tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (origem_bloco.x + 12, origem_bloco.y + 12 + i * 22))
+                
+                # Mostrar resumo de backstory se disponível
+                if info_save.get("resumo_backstory"):
+                    # Mostrar backstory em vez da origem simples
+                    tela.blit(fonte_titulo.render("HISTORIA DO PERSONAGEM", True, (146, 98, 70)), (origem_bloco.x + 10, origem_bloco.y - 22))
+                    
+                    linhas_backstory = quebrar_texto(fonte_texto, info_save["resumo_backstory"], origem_bloco.width - 20)
+                    max_linhas_backstory = max(2, (origem_bloco.height - 18) // 20)
+                    
+                    for i, linha in enumerate(linhas_backstory[:max_linhas_backstory]):
+                        tela.blit(fonte_texto.render(linha, True, (72, 50, 36)), (origem_bloco.x + 12, origem_bloco.y + 10 + i * 20))
+                    
+                    if len(linhas_backstory) > max_linhas_backstory:
+                        tela.blit(fonte_texto.render("...", True, (146, 98, 70)), (origem_bloco.x + 12, origem_bloco.y + max_linhas_backstory * 20))
+                else:
+                    # Mostrar origem normal
+                    for i, linha in enumerate(linhas_origem[:max(2, (origem_bloco.height - 18) // 22)]):
+                        tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (origem_bloco.x + 12, origem_bloco.y + 12 + i * 22))
             
             elif estado == "carregar" and not saves:
                 # No saves found
@@ -1281,17 +1320,44 @@ def menu_inicial() -> tuple[str, dict | str | None]:
                 )
                 assets.painel(tela, bloco_historia, estilo="beige", inset=True, alpha=238)
 
-                texto_lore = [
-                    f"Origem: {origem}",
-                    f"Legado: {legado}",
-                    f"Motivacao: {motivacao}",
-                ]
-                linhas_origem: list[str] = []
-                for trecho in texto_lore:
-                    linhas_origem.extend(quebrar_texto(fonte_texto, trecho, bloco_historia.width - 18))
-                max_linhas_lore = max(3, (bloco_historia.height - 18) // 22)
-                for i, linha in enumerate(linhas_origem[:max_linhas_lore]):
-                    tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (bloco_historia.x + 10, bloco_historia.y + 12 + i * 22))
+                # Mostrar backstory se disponível (estado "novo_nome")
+                if estado == "novo_nome" and preview.get("resumo_backstory"):
+                    resumo_backstory = preview.get("resumo_backstory", "")
+                    linhas_backstory = quebrar_texto(fonte_texto, resumo_backstory, bloco_historia.width - 18)
+                    max_linhas_backstory = max(3, (bloco_historia.height - 18) // 20)
+                    
+                    # Mostrar rótulo de backstory
+                    tela.blit(fonte_titulo.render("HISTORIA DO PERSONAGEM", True, (146, 98, 70)), (bloco_historia.x + 10, bloco_historia.y - 22))
+                    
+                    for i, linha in enumerate(linhas_backstory[:max_linhas_backstory]):
+                        tela.blit(fonte_texto.render(linha, True, (72, 50, 36)), (bloco_historia.x + 10, bloco_historia.y + 10 + i * 20))
+                    
+                    if len(linhas_backstory) > max_linhas_backstory:
+                        tela.blit(fonte_texto.render("...", True, (146, 98, 70)), (bloco_historia.x + 10, bloco_historia.y + max_linhas_backstory * 20))
+                elif preview.get("backstory_completa"):
+                    # Se tiver backstory completa (já gerada), mostrar parte dela
+                    backstory_completa = preview.get("backstory_completa", "")
+                    linhas_backstory = backstory_completa.split('\n')[:5]
+                    
+                    tela.blit(fonte_titulo.render("HISTORIA DO PERSONAGEM", True, (146, 98, 70)), (bloco_historia.x + 10, bloco_historia.y - 22))
+                    
+                    for i, linha in enumerate(linhas_backstory):
+                        if i < 5:
+                            linha_truncada = (linha[:70] + "...") if len(linha) > 70 else linha
+                            tela.blit(fonte_texto.render(linha_truncada, True, (72, 50, 36)), (bloco_historia.x + 10, bloco_historia.y + 10 + i * 20))
+                else:
+                    # Mostra origem, legado, motivação normalmente
+                    texto_lore = [
+                        f"Origem: {origem}",
+                        f"Legado: {legado}",
+                        f"Motivacao: {motivacao}",
+                    ]
+                    linhas_origem: list[str] = []
+                    for trecho in texto_lore:
+                        linhas_origem.extend(quebrar_texto(fonte_texto, trecho, bloco_historia.width - 18))
+                    max_linhas_lore = max(3, (bloco_historia.height - 18) // 22)
+                    for i, linha in enumerate(linhas_origem[:max_linhas_lore]):
+                        tela.blit(fonte_texto.render(linha, True, (86, 60, 44)), (bloco_historia.x + 10, bloco_historia.y + 12 + i * 22))
 
                 for i, linha in enumerate(rodape_linhas):
                     tela.blit(fonte_texto.render(linha, True, (102, 74, 56)), (painel_direito.x + 20, rodape_y + i * 18))

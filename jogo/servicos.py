@@ -5,6 +5,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 import pygame
 
@@ -682,6 +683,7 @@ def obter_info_save(nome_save: str) -> dict:
         "origem": "Origem desconhecida",
         "tamanho_mundo": 0,
         "timestamp": 0,
+        "resumo_backstory": "",
     }
     
     if pasta.exists() and pasta.is_dir():
@@ -703,6 +705,19 @@ def obter_info_save(nome_save: str) -> dict:
             try:
                 mundo_dados = json.loads(mundo_file.read_text(encoding="utf-8"))
                 info["tamanho_mundo"] = mundo_dados.get("tamanho", 0)
+            except Exception:
+                pass
+        
+        # Try to load player_backstory.json for backstory summary
+        backstory_file = pasta / "player_backstory.json"
+        if backstory_file.exists():
+            try:
+                backstory_dados = json.loads(backstory_file.read_text(encoding="utf-8"))
+                info["resumo_backstory"] = backstory_dados.get("resumo_backstory", "")
+                # Se não tiver resumo mas tiver completo, gerar um
+                if not info["resumo_backstory"] and backstory_dados.get("backstory_completa"):
+                    linhas = backstory_dados["backstory_completa"].split('\n')[:3]
+                    info["resumo_backstory"] = " ".join(linhas)
             except Exception:
                 pass
     
@@ -863,6 +878,27 @@ def salvar_jogo(nome_save: str, mundo: Mundo, memoria: MemoriaRaphael, meta: dic
         ),
         encoding="utf-8",
     )
+    
+    # Salvar backstory completa em arquivo separado
+    if mundo.perfil_jogador:
+        backstory_data = {
+            "backstory_completa": mundo.perfil_jogador.get("backstory_completa", ""),
+            "resumo_backstory": mundo.perfil_jogador.get("resumo_backstory", ""),
+            "motivacao_principal": mundo.perfil_jogador.get("motivacao", ""),
+            "segredo": mundo.perfil_jogador.get("segredo", ""),
+            "ponto_fraco": mundo.perfil_jogador.get("ponto_fraco", ""),
+            "habilidade_especial": mundo.perfil_jogador.get("habilidade_especial", ""),
+            "conexoes_npc": mundo.perfil_jogador.get("conexoes_npc", {}),
+            "spawnpoint_ideal": mundo.perfil_jogador.get("spawnpoint_ideal"),
+            "bioma_origem": mundo.perfil_jogador.get("bioma_origem", ""),
+            "idade": mundo.idade_humano,
+            "impactos_npc": mundo.perfil_jogador.get("impactos_npc", {}),
+        }
+        (pasta / "player_backstory.json").write_text(
+            json.dumps(backstory_data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+    
     return nome
 
 
@@ -1078,3 +1114,72 @@ def criar_mundo_com_raphael(objetivos: dict, perfil_jogador: dict | None = None)
     memoria.adicionar_evento(f"Mundo criado: {config_mundo['tamanho_grid']}x{config_mundo['tamanho_grid']}")
     memoria.adicionar_evento(f"Personagem: {config_mundo['nome_humano']}")
     return mundo, config_mundo["tamanho_grid"], memoria, raphael
+
+
+def gerar_backstory_completa_jogador_asyncio(nome_forcado: Optional[str] = None) -> dict:
+    """
+    Pipeline assíncrono de geração de backstory complexa do jogador.
+    Retorna um dicionário com toda a história e metadados.
+    
+    Args:
+        nome_forcado: Nome específico para o personagem
+        
+    Returns:
+        Dicionário com backstory_gerada, resumo, e outros dados
+    """
+    from .player_backstory_generator import GeradorBackstoryAvancado, gerar_impacto_relacoes_npc
+    
+    try:
+        gerador = GeradorBackstoryAvancado()
+        backstory_obj = gerador.gerar_backstory_completa_personagem(nome_forcado)
+        
+        # Converter objeto para dicionário
+        backstory_dict = {
+            "sucesso": True,
+            "idade": backstory_obj.idade,
+            "origem_base": backstory_obj.origem_base,
+            "origem_expandida": backstory_obj.origem_expandida,
+            "nome": backstory_obj.nome,
+            "backstory_completa": backstory_obj.backstory_completa,
+            "motivacao_principal": backstory_obj.motivacao_principal,
+            "segredo": backstory_obj.segredo,
+            "ponto_fraco": backstory_obj.ponto_fraco,
+            "habilidade_especial": backstory_obj.habilidade_especial,
+            "conexoes_npc": backstory_obj.conexoes_npc,
+            "spawnpoint_ideal": backstory_obj.spawnpoint_ideal,
+            "bioma_origem": backstory_obj.bioma_origem,
+            "resumo": _extrair_resumo_backstory_curto(backstory_obj.backstory_completa, 5),
+        }
+        
+        # Gerar impactos de relações com NPCs
+        backstory_dict["impactos_npc"] = gerar_impacto_relacoes_npc(backstory_dict)
+        
+        return backstory_dict
+    except Exception as e:
+        print(f"[Erro] Falha ao gerar backstory complexa: {e}")
+        return {
+            "sucesso": False,
+            "erro": str(e),
+        }
+
+
+def _extrair_resumo_backstory_curto(backstory_completa: str, max_linhas: int = 5) -> str:
+    """
+    Extrai um resumo muito curto (para exibição na UI de carregamento).
+    
+    Args:
+        backstory_completa: Texto completo da backstory
+        max_linhas: Máximo de linhas para resumo
+        
+    Returns:
+        Resumo formatado
+    """
+    linhas = backstory_completa.split('\n')
+    resumo_linhas = [l.strip() for l in linhas[:max_linhas] if l.strip()]
+    resumo = '\n'.join(resumo_linhas)
+    
+    # Truncar se muito longo
+    if len(resumo) > 450:
+        resumo = resumo[:447] + "..."
+    
+    return resumo
